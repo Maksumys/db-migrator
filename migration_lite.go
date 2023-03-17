@@ -3,20 +3,20 @@ package db_migrator
 import "database/sql"
 
 type MigrationLite struct {
-	migrationType MigrationType
-	version       string
-	description   string
+	MigrationType MigrationType
+	Version       string
+	Description   string
 
-	isTransactional bool
-	isAllowFailure  bool
+	IsTransactional bool
+	IsAllowFailure  bool
 
-	up   string
-	down string
+	Up   string
+	Down string
 
-	upF   func(db *sql.DB) error
-	downF func(db *sql.DB) error
+	UpF   func(db *sql.DB) error
+	DownF func(db *sql.DB) error
 
-	checkSum            func() string
-	identifier          uint32
-	repeatUnconditional bool
+	CheckSum            func() string
+	Identifier          uint32
+	RepeatUnconditional bool
 }

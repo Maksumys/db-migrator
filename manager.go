@@ -1,7 +1,6 @@
 package db_migrator
 
 import (
-	"database/sql"
 	"errors"
 	"fmt"
 	"github.com/Maksumys/db-migrator/internal/models"
@@ -16,7 +15,7 @@ import (
 var (
 	ErrHasForthcomingMigrations = errors.New("found not completed forthcoming migrations, consider migrating")
 	ErrHasFailedMigrations      = errors.New("found failed migrations, consider fixing your db")
-	ErrTargetVersionNotLatest   = errors.New("target version falls behind migrations, consider raising target version")
+	ErrTargetVersionNotLatest   = errors.New("target Version falls behind migrations, consider raising target Version")
 )
 
 // NewMigrationsManager создает экземпляр управляющего миграциями (выступает в качестве фасада).
@@ -60,67 +59,25 @@ type MigrationManager struct {
 	registeredMigrationsSet map[uint32]*MigrationLite
 }
 
-// RegisterMigration
-// deprecated
-func (m *MigrationManager) RegisterMigration(migration *Migration, opts ...MigrationOption) {
-	for _, opt := range opts {
-		opt(migration)
-	}
-
-	identifier := getMigrationIdentifier(migration.version, string(migration.migrationType))
-	if _, ok := m.registeredMigrationsSet[identifier]; ok {
-		panic(fmt.Sprintf(
-			"Migration with same identifier twice. Type: %s. Identifier: %d",
-			migration.migrationType, identifier,
-		))
-	}
-
-	migrationLite := &MigrationLite{
-		migrationType:   migration.migrationType,
-		version:         migration.migrator.Version().String(),
-		description:     migration.migrator.Description(),
-		isTransactional: migration.transaction,
-		isAllowFailure:  migration.allowFailure,
-		upF: func(db *sql.DB) error {
-			return migration.migrator.Migrate(m.db)
-		},
-	}
-
-	if versionedMigrator, ok := migration.migrator.(VersionedMigrator); ok {
-		migrationLite.downF = func(db *sql.DB) error {
-			return versionedMigrator.Downgrade(m.db)
-		}
-	} else if repeatableMigrator, ok := migration.migrator.(RepeatableMigrator); ok {
-		migrationLite.checkSum = func() string {
-			return repeatableMigrator.Checksum()
-		}
-	}
-
-	migration.identifier = identifier
-	m.registeredMigrationsSet[identifier] = migrationLite
-	m.registeredMigrations = append(m.registeredMigrations, migrationLite)
-	return
-}
-
 // RegisterLite сохраняет миграции в память.
 // По умолчанию миграции осуществляются внутри транзакции.
 //
 // Паникует при регистрации миграций с одинаковымм версией и типом.
 func (m *MigrationManager) RegisterLite(migrationsStruct ...MigrationLite) {
-	for _, migration := range migrationsStruct {
-		identifier := getMigrationIdentifier(migration.version, string(migration.migrationType))
+	for i := 0; i < len(migrationsStruct); i++ {
+		identifier := getMigrationIdentifier(migrationsStruct[i].Version, string(migrationsStruct[i].MigrationType))
 		if _, ok := m.registeredMigrationsSet[identifier]; ok {
 			panic(fmt.Sprintf(
-				"Migration with same identifier twice. Type: %s. Identifier: %d",
-				migration.migrationType, identifier,
+				"Migration with same Identifier twice. Type: %s. Identifier: %d",
+				migrationsStruct[i].MigrationType, identifier,
 			))
 		}
 
-		migration.identifier = identifier
-		m.registeredMigrationsSet[identifier] = &migration
-		m.registeredMigrations = append(m.registeredMigrations, &migration)
-		return
+		migrationsStruct[i].Identifier = identifier
+		m.registeredMigrationsSet[identifier] = &migrationsStruct[i]
+		m.registeredMigrations = append(m.registeredMigrations, &migrationsStruct[i])
 	}
+	return
 }
 
 // CheckFulfillment проверяет корректность установки всех миграций. Проверяется, что нет миграций со статусом
@@ -228,7 +185,7 @@ func (m *MigrationManager) TargetVersionNotLatest() (bool, error) {
 	}
 
 	for i, _ := range m.registeredMigrations {
-		migrationVersion := mustParseVersion(m.registeredMigrations[i].version)
+		migrationVersion := mustParseVersion(m.registeredMigrations[i].Version)
 		if !m.targetVersion.MoreOrEqual(migrationVersion) {
 			return true, nil
 		}
@@ -241,7 +198,7 @@ func (m *MigrationManager) findMigration(migrationModel models.MigrationModel) (
 	migrationModelIdentifier := getMigrationIdentifier(migrationModel.Version, migrationModel.Type)
 
 	for _, migration := range m.registeredMigrations {
-		registeredMigrationIdentifier := getMigrationIdentifier(migration.version, string(migration.migrationType))
+		registeredMigrationIdentifier := getMigrationIdentifier(migration.Version, string(migration.MigrationType))
 		if registeredMigrationIdentifier == migrationModelIdentifier {
 			return migration, true
 		}
@@ -266,7 +223,7 @@ func (m *MigrationManager) getSavedAppVersion() Version {
 func migrationIsNew(migration *MigrationLite, savedMigrations []models.MigrationModel) bool {
 	for j, _ := range savedMigrations {
 		savedMigrationIdentifier := getMigrationIdentifier(savedMigrations[j].Version, savedMigrations[j].Type)
-		if migration.identifier == savedMigrationIdentifier {
+		if migration.Identifier == savedMigrationIdentifier {
 			return false
 		}
 	}

@@ -9,7 +9,7 @@ import (
 	"sort"
 )
 
-// Migrate сохраняет и выполняет миграции в нужном порядке. Для этого на первом шаге создаются системные таблицы version
+// Migrate сохраняет и выполняет миграции в нужном порядке. Для этого на первом шаге создаются системные таблицы Version
 // и migrations, затем определяется необходимость проведения миграции типа TypeBaseline, после чего выполняются миграции
 // типов TypeVersioned. Миграции типа TypeRepeatable выполняются в последнюю очередь.
 // Все зарегистрированные миграции сохраняются в таблицу migrations. Миграции считаются новыми по инедтификатору
@@ -39,13 +39,13 @@ func (m *MigrationManager) Migrate() error {
 		if !ok {
 			if !m.allowBypassNotFound(migrationModel) {
 				panic(fmt.Sprintf(
-					"migration (type: %s, version: %s) not found\n",
+					"migration (type: %s, Version: %s) not found\n",
 					migrationModel.Type, migrationModel.Version,
 				))
 			}
 
 			m.logger.Printf(
-				"migration (type: %s, version: %s) not found, skipping",
+				"migration (type: %s, Version: %s) not found, skipping",
 				migrationModel.Type, migrationModel.Version,
 			)
 			err = repository.UpdateMigrationState(m.db, &migrationModel, models.StateNotFound)
@@ -57,7 +57,7 @@ func (m *MigrationManager) Migrate() error {
 		}
 
 		err = m.executeMigration(migrationModel, migration)
-		if err != nil && !migration.isAllowFailure {
+		if err != nil && !migration.IsAllowFailure {
 			err = repository.UpdateMigrationState(m.db, &migrationModel, models.StateFailure)
 			if err != nil {
 				return err
@@ -72,7 +72,7 @@ func (m *MigrationManager) Migrate() error {
 		}
 	}
 
-	m.logger.Println("Migrations completed, current repository version is up to date")
+	m.logger.Println("Migrations completed, current repository Version is Up to date")
 	return nil
 }
 
@@ -132,7 +132,7 @@ func (m *MigrationManager) saveNewMigrations() ([]models.MigrationModel, error) 
 		versionIncorrect := false
 		for j := range savedMigrations {
 			versionSaved := mustParseVersion(savedMigrations[j].Version)
-			versionToSave := mustParseVersion(newMigrations[i].version)
+			versionToSave := mustParseVersion(newMigrations[i].Version)
 
 			if versionSaved.MoreThan(versionToSave) {
 				versionIncorrect = true
@@ -140,19 +140,19 @@ func (m *MigrationManager) saveNewMigrations() ([]models.MigrationModel, error) 
 		}
 		if versionIncorrect {
 			panic(fmt.Sprintf(
-				"Attempting to register migration with lower version than existing one. Type: %s. Identifier: %d",
-				newMigrations[i].migrationType, newMigrations[i].identifier,
+				"Attempting to register migration with lower Version than existing one. Type: %s. Identifier: %d",
+				newMigrations[i].MigrationType, newMigrations[i].Identifier,
 			))
 		}
 	}
 
 	sort.SliceStable(newMigrations, func(i, j int) bool {
-		leftVersioned, err := parseVersion(m.registeredMigrations[i].version)
+		leftVersioned, err := parseVersion(m.registeredMigrations[i].Version)
 		if err != nil {
 			panic(err)
 		}
 
-		rightVersioned, err := parseVersion(m.registeredMigrations[j].version)
+		rightVersioned, err := parseVersion(m.registeredMigrations[j].Version)
 		if err != nil {
 			panic(err)
 		}
@@ -164,9 +164,9 @@ func (m *MigrationManager) saveNewMigrations() ([]models.MigrationModel, error) 
 		for i := range newMigrations {
 			migration, err := repository.SaveMigration(tx, repository.SaveMigrationRequest{
 				Rank:        maxRank + (i + 1),
-				Type:        string(newMigrations[i].migrationType),
-				Version:     newMigrations[i].version,
-				Description: newMigrations[i].description,
+				Type:        string(newMigrations[i].MigrationType),
+				Version:     newMigrations[i].Version,
+				Description: newMigrations[i].Description,
 				State:       models.StateRegistered,
 			})
 			if err != nil {
@@ -186,24 +186,24 @@ func (m *MigrationManager) saveNewMigrations() ([]models.MigrationModel, error) 
 
 func (m *MigrationManager) executeMigration(migrationModel models.MigrationModel, migration *MigrationLite) error {
 	m.logger.Printf(
-		"Executing %s migration: version %s. State: %s\n",
+		"Executing %s migration: Version %s. State: %s\n",
 		migrationModel.Type, migrationModel.Version, migrationModel.State,
 	)
 
-	if len(migration.up) == 0 && migration.upF == nil || len(migration.up) > 0 && migration.upF != nil {
-		return errors.New("fail to migrate, because up and upf is empty or both is not nil")
+	if len(migration.Up) == 0 && migration.UpF == nil || len(migration.Up) > 0 && migration.UpF != nil {
+		return errors.New("fail to migrate, because Up and upf is empty or both is not nil")
 	}
 
-	if migration.isTransactional {
+	if migration.IsTransactional {
 		err := m.db.Transaction(func(tx *gorm.DB) error {
-			if len(migration.up) > 0 {
-				return tx.Exec(migration.up).Error
+			if len(migration.Up) > 0 {
+				return tx.Exec(migration.Up).Error
 			} else {
 				db, err := tx.DB()
 				if err != nil {
 					return err
 				}
-				return migration.upF(db)
+				return migration.UpF(db)
 			}
 		})
 
@@ -216,13 +216,13 @@ func (m *MigrationManager) executeMigration(migrationModel models.MigrationModel
 			return err
 		}
 
-		if len(migration.up) > 0 {
-			_, err = db.Exec(migration.up)
+		if len(migration.Up) > 0 {
+			_, err = db.Exec(migration.Up)
 			if err != nil {
 				return err
 			}
 		} else {
-			return migration.upF(db)
+			return migration.UpF(db)
 		}
 	}
 
@@ -235,15 +235,15 @@ func (m *MigrationManager) saveStateOnSuccessfulMigration(
 	migrationModel models.MigrationModel,
 	migration *MigrationLite,
 ) error {
-	switch migration.migrationType {
+	switch migration.MigrationType {
 	case TypeVersioned:
-		err := repository.SaveVersion(m.db, migration.version)
+		err := repository.SaveVersion(m.db, migration.Version)
 		if err != nil {
 			return err
 		}
 
 	case TypeBaseline:
-		err := repository.SaveVersion(m.db, migration.version)
+		err := repository.SaveVersion(m.db, migration.Version)
 		if err != nil {
 			return err
 		}
@@ -261,13 +261,13 @@ func (m *MigrationManager) saveStateOnSuccessfulMigration(
 		}
 	}
 
-	if migration.checkSum == nil {
-		migration.checkSum = func() string {
+	if migration.CheckSum == nil {
+		migration.CheckSum = func() string {
 			return ""
 		}
 	}
 
-	err := repository.UpdateMigrationStateExecuted(m.db, &migrationModel, models.StateSuccess, migration.checkSum())
+	err := repository.UpdateMigrationStateExecuted(m.db, &migrationModel, models.StateSuccess, migration.CheckSum())
 	if err != nil {
 		return err
 	}

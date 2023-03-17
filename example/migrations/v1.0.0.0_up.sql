@@ -1,0 +1,1 @@
+create table connections( id bigserial, one text, two numeric );

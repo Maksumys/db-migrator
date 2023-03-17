@@ -17,7 +17,7 @@ func (m *MigrationManager) Downgrade() (err error) {
 	m.logger.Println("Preparing downgrade execution")
 
 	if !repository.HasVersionTable(m.db) || !repository.HasVersionTable(m.db) {
-		panic("No migration table or version table found. Cannot perform downgrade")
+		panic("No migration table or Version table found. Cannot perform downgrade")
 	}
 
 	savedMigrations, err := repository.GetMigrationsSorted(m.db, repository.OrderDESC)
@@ -36,7 +36,7 @@ func (m *MigrationManager) Downgrade() (err error) {
 		migration, ok := m.findMigration(migrationModel)
 		if !ok {
 			panic(fmt.Sprintf(
-				"migration (type: %s, version: %s) not found\n",
+				"migration (type: %s, Version: %s) not found\n",
 				migrationModel.Type, migrationModel.Version,
 			))
 		}
@@ -72,27 +72,27 @@ func (m *MigrationManager) planDowngrade() (migrationsPlan, error) {
 
 func (m *MigrationManager) executeDowngrade(migrationModel models.MigrationModel, migration *MigrationLite) error {
 	m.logger.Printf(
-		"Downgrading %s migration: version %s. State: %s\n",
+		"Downgrading %s migration: Version %s. State: %s\n",
 		migrationModel.Type, migrationModel.Version, migrationModel.State,
 	)
 
-	if migration.migrationType != TypeVersioned {
+	if migration.MigrationType != TypeVersioned {
 		panic("versioned migration must satisfy VersionedMigrator interface")
 	}
-	if len(migration.down) == 0 && migration.downF == nil {
-		panic("fail to downgrade, because down and downF is empty")
+	if len(migration.Down) == 0 && migration.DownF == nil {
+		panic("fail to downgrade, because Down and DownF is empty")
 	}
 
-	if migration.isTransactional {
+	if migration.IsTransactional {
 		err := m.db.Transaction(func(tx *gorm.DB) error {
-			if len(migration.down) > 0 {
-				return tx.Exec(migration.down).Error
+			if len(migration.Down) > 0 {
+				return tx.Exec(migration.Down).Error
 			} else {
 				db, err := tx.DB()
 				if err != nil {
 					return err
 				}
-				return migration.downF(db)
+				return migration.DownF(db)
 			}
 		})
 
@@ -106,13 +106,13 @@ func (m *MigrationManager) executeDowngrade(migrationModel models.MigrationModel
 			return err
 		}
 
-		if len(migration.down) > 0 {
-			_, err = db.Exec(migration.down)
+		if len(migration.Down) > 0 {
+			_, err = db.Exec(migration.Down)
 			if err != nil {
 				return err
 			}
 		} else {
-			return migration.downF(db)
+			return migration.DownF(db)
 		}
 	}
 
@@ -121,13 +121,13 @@ func (m *MigrationManager) executeDowngrade(migrationModel models.MigrationModel
 }
 
 func (m *MigrationManager) saveStateAfterDowngrading(savedMigrations []models.MigrationModel, migrationModel models.MigrationModel, migration *MigrationLite) error {
-	if migration.checkSum == nil {
-		migration.checkSum = func() string {
+	if migration.CheckSum == nil {
+		migration.CheckSum = func() string {
 			return ""
 		}
 	}
 
-	err := repository.UpdateMigrationStateExecuted(m.db, &migrationModel, models.StateUndone, migration.checkSum())
+	err := repository.UpdateMigrationStateExecuted(m.db, &migrationModel, models.StateUndone, migration.CheckSum())
 	if err != nil {
 		return err
 	}

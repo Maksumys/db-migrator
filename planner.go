@@ -51,7 +51,7 @@ func (p *migratePlanner) planMigrationsBaseline(plan *migrationsPlan) {
 
 	relevantBaseline, ok := p.findRelevantBaseline()
 	if !ok {
-		p.manager.logger.Println("No relevant baseline migrations for current target version found")
+		p.manager.logger.Println("No relevant baseline migrations for current target Version found")
 		return
 	}
 
@@ -120,15 +120,15 @@ func (p *migratePlanner) planMigrationsRepeatable(plan *migrationsPlan) {
 			continue
 		}
 
-		if migration.checkSum == nil {
-			migration.checkSum = func() string {
+		if migration.CheckSum == nil {
+			migration.CheckSum = func() string {
 				return ""
 			}
 		}
 
-		if !migration.repeatUnconditional && migrationModel.Checksum == migration.checkSum() {
+		if !migration.RepeatUnconditional && migrationModel.Checksum == migration.CheckSum() {
 			p.manager.logger.Printf(
-				"migration (type: %s, version: %s, checksum: %s) checksum not changed, skipping\n",
+				"migration (type: %s, Version: %s, checksum: %s) checksum not changed, skipping\n",
 				migrationModel.Type, migrationModel.Version, migrationModel.Checksum,
 			)
 			continue
