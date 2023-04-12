@@ -19,7 +19,7 @@ var (
 )
 
 // NewMigrationsManager создает экземпляр управляющего миграциями (выступает в качестве фасада).
-// targetVersion - версия, до которой необходимо выполнить миграцию или до которой необоходимо осуществить откат.
+// targetVersion - версия, до которой необходимо выполнить миграцию или до необходимо осуществить откат.
 func NewMigrationsManager(dsn string, targetVersion string, opts ...ManagerOption) (*MigrationManager, error) {
 	target, err := parseVersion(targetVersion)
 	if err != nil {
@@ -123,7 +123,7 @@ func (m *MigrationManager) HasFailedMigrations() (bool, error) {
 		return false, err
 	}
 
-	for i, _ := range savedMigrations {
+	for i := range savedMigrations {
 		if savedMigrations[i].State == models.StateFailure {
 			return true, nil
 		}
@@ -146,14 +146,14 @@ func (m *MigrationManager) HasForthcomingMigrations() (bool, error) {
 		return false, err
 	}
 
-	for i, _ := range savedMigrations {
+	for i := range savedMigrations {
 		migrationVersion := mustParseVersion(savedMigrations[i].Version)
 		if migrationVersion.MoreOrEqual(savedVersion) && savedMigrations[i].State != models.StateSuccess {
 			return true, nil
 		}
 	}
 
-	for i, _ := range m.registeredMigrations {
+	for i := range m.registeredMigrations {
 		// достаточно проверить, что миграция еще не сохранена, т.к. создание новых миграций разрешено только для версий
 		// выше текущей максимальной версии сохраненных миграций
 		if migrationIsNew(m.registeredMigrations[i], savedMigrations) {
@@ -177,14 +177,14 @@ func (m *MigrationManager) TargetVersionNotLatest() (bool, error) {
 		return false, err
 	}
 
-	for i, _ := range savedMigrations {
+	for i := range savedMigrations {
 		migrationVersion := mustParseVersion(savedMigrations[i].Version)
 		if !m.targetVersion.MoreOrEqual(migrationVersion) {
 			return true, nil
 		}
 	}
 
-	for i, _ := range m.registeredMigrations {
+	for i := range m.registeredMigrations {
 		migrationVersion := mustParseVersion(m.registeredMigrations[i].Version)
 		if !m.targetVersion.MoreOrEqual(migrationVersion) {
 			return true, nil
@@ -221,7 +221,7 @@ func (m *MigrationManager) getSavedAppVersion() Version {
 }
 
 func migrationIsNew(migration *MigrationLite, savedMigrations []models.MigrationModel) bool {
-	for j, _ := range savedMigrations {
+	for j := range savedMigrations {
 		savedMigrationIdentifier := getMigrationIdentifier(savedMigrations[j].Version, savedMigrations[j].Type)
 		if migration.Identifier == savedMigrationIdentifier {
 			return false

@@ -1,6 +1,7 @@
 package db_migrator
 
 import (
+	"database/sql"
 	"fmt"
 	"github.com/Maksumys/db-migrator/internal/models"
 	"github.com/Maksumys/db-migrator/internal/repository"
@@ -122,12 +123,17 @@ func (m *MigrationManager) executeDowngrade(migrationModel models.MigrationModel
 
 func (m *MigrationManager) saveStateAfterDowngrading(savedMigrations []models.MigrationModel, migrationModel models.MigrationModel, migration *MigrationLite) error {
 	if migration.CheckSum == nil {
-		migration.CheckSum = func() string {
+		migration.CheckSum = func(db *sql.DB) string {
 			return ""
 		}
 	}
 
-	err := repository.UpdateMigrationStateExecuted(m.db, &migrationModel, models.StateUndone, migration.CheckSum())
+	db, err := m.db.DB()
+	if err != nil {
+		return err
+	}
+
+	err = repository.UpdateMigrationStateExecuted(m.db, &migrationModel, models.StateUndone, migration.CheckSum(db))
 	if err != nil {
 		return err
 	}
@@ -141,7 +147,7 @@ func (m *MigrationManager) saveVersionDowngrade(
 ) error {
 	// фильтруем миграции типа TypeRepeatable
 	filteredMigrations := make([]models.MigrationModel, 0, len(savedMigrations))
-	for i, _ := range savedMigrations {
+	for i := range savedMigrations {
 		if savedMigrations[i].Type == string(TypeRepeatable) {
 			continue
 		}
@@ -158,7 +164,7 @@ func (m *MigrationManager) saveVersionDowngrade(
 	undoneMigrationVersion := mustParseVersion(migrationModel.Version)
 	versionToSave := Version{Major: 0, Minor: 0, Patch: 0, PreRelease: 0}
 	// находим предыдущую версию
-	for i, _ := range filteredMigrations {
+	for i := range filteredMigrations {
 		if filteredMigrations[i].Type != string(TypeVersioned) {
 			continue
 		}

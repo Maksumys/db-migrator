@@ -16,7 +16,7 @@ type MigrationLite struct {
 	UpF   func(db *sql.DB) error
 	DownF func(db *sql.DB) error
 
-	CheckSum            func() string
+	CheckSum            func(db *sql.DB) string
 	Identifier          uint32
 	RepeatUnconditional bool
 }

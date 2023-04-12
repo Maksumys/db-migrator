@@ -2,6 +2,7 @@ package db_migrator
 
 import (
 	"container/list"
+	"database/sql"
 	"github.com/Maksumys/db-migrator/internal/models"
 	"sort"
 )
@@ -121,12 +122,17 @@ func (p *migratePlanner) planMigrationsRepeatable(plan *migrationsPlan) {
 		}
 
 		if migration.CheckSum == nil {
-			migration.CheckSum = func() string {
+			migration.CheckSum = func(db *sql.DB) string {
 				return ""
 			}
 		}
 
-		if !migration.RepeatUnconditional && migrationModel.Checksum == migration.CheckSum() {
+		db, err := p.manager.db.DB()
+		if err != nil {
+			return
+		}
+
+		if !migration.RepeatUnconditional && migrationModel.Checksum == migration.CheckSum(db) {
 			p.manager.logger.Printf(
 				"migration (type: %s, Version: %s, checksum: %s) checksum not changed, skipping\n",
 				migrationModel.Type, migrationModel.Version, migrationModel.Checksum,
