@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/Maksumys/db-migrator/internal/models"
 	"github.com/Maksumys/db-migrator/internal/repository"
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"hash/fnv"
 	"log"
@@ -20,19 +19,10 @@ var (
 
 // NewMigrationsManager создает экземпляр управляющего миграциями (выступает в качестве фасада).
 // targetVersion - версия, до которой необходимо выполнить миграцию или до необходимо осуществить откат.
-func NewMigrationsManager(dsn string, targetVersion string, opts ...ManagerOption) (*MigrationManager, error) {
+func NewMigrationsManager(db *gorm.DB, targetVersion string, opts ...ManagerOption) (*MigrationManager, error) {
 	target, err := parseVersion(targetVersion)
 	if err != nil {
 		return nil, err
-	}
-
-	db, err := gorm.Open(postgres.New(postgres.Config{
-		DSN:                  dsn,
-		PreferSimpleProtocol: true,
-	}))
-
-	if err != nil {
-		panic(err)
 	}
 
 	manager := MigrationManager{

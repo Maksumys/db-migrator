@@ -3,6 +3,8 @@ package db_migrator
 import (
 	"database/sql"
 	"github.com/sirupsen/logrus"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 	"log"
 	"testing"
 )
@@ -13,7 +15,15 @@ func TestMigrate(t *testing.T) {
 	logrus.SetLevel(logrus.Level(5))
 
 	{
-		migrator, err := NewMigrationsManager(dsn, "1.2.0.1", WithLogWriter(logrus.StandardLogger().Writer()))
+		db, err := gorm.Open(postgres.New(postgres.Config{
+			DSN:                  dsn,
+			PreferSimpleProtocol: true,
+		}))
+		if err != nil {
+			log.Fatalln(err)
+		}
+
+		migrator, err := NewMigrationsManager(db, "1.2.0.1", WithLogWriter(logrus.StandardLogger().Writer()))
 		if err != nil {
 			log.Fatalln(err)
 		}
