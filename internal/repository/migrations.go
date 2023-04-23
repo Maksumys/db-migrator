@@ -27,7 +27,7 @@ func UpdateMigrationState(db *gorm.DB, model *models.MigrationModel, state model
 func UpdateMigrationStateExecuted(db *gorm.DB, model *models.MigrationModel, state models.MigrationState, checksum string) error {
 	now := time.Now().UTC()
 	return db.Model(model).Updates(models.MigrationModel{
-		ExecutedOn: &now,
+		ExecutedOn: &models.CustomTime{Time: now},
 		State:      state,
 		Checksum:   checksum,
 	}).Error
@@ -50,7 +50,7 @@ func SaveMigration(db *gorm.DB, request SaveMigrationRequest) (models.MigrationM
 		Type:         request.Type,
 		Version:      request.Version,
 		Description:  request.Description,
-		RegisteredOn: time.Now().UTC(),
+		RegisteredOn: models.CustomTime{Time: time.Now().UTC()},
 		State:        request.State,
 	}
 

@@ -3,7 +3,7 @@ package db_migrator
 import (
 	"database/sql"
 	"github.com/sirupsen/logrus"
-	"gorm.io/driver/postgres"
+	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"log"
 	"testing"
@@ -15,10 +15,8 @@ func TestMigrate(t *testing.T) {
 	logrus.SetLevel(logrus.Level(5))
 
 	{
-		db, err := gorm.Open(postgres.New(postgres.Config{
-			DSN:                  dsn,
-			PreferSimpleProtocol: true,
-		}))
+		db, err := gorm.Open(sqlite.Open("test.db"))
+
 		if err != nil {
 			log.Fatalln(err)
 		}
@@ -108,6 +106,11 @@ func TestMigrate(t *testing.T) {
 
 		err = migrator.Migrate()
 		if err != nil {
+			log.Fatalln(err)
+		}
+
+		_, ok, err := migrator.CheckFulfillment()
+		if !ok {
 			log.Fatalln(err)
 		}
 	}

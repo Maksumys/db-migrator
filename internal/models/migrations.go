@@ -1,7 +1,5 @@
 package models
 
-import "time"
-
 type MigrationState string
 
 const (
@@ -19,8 +17,8 @@ type MigrationModel struct {
 	Type         string
 	Version      string
 	Description  string
-	RegisteredOn time.Time
-	ExecutedOn   *time.Time
+	RegisteredOn CustomTime  `gorm:"type:datetime"`
+	ExecutedOn   *CustomTime `gorm:"type:datetime"`
 	Checksum     string
 	State        MigrationState
 }
