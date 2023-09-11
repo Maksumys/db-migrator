@@ -188,7 +188,10 @@ func DB2(migrator *MigrationManager) error {
 			Version:       "1.0.1.0",
 			Description:   "up connections2",
 			Up:            "alter table connections add column four text;",
-			Down:          "",
+			UpF: func(migrator *MigrationManager) error {
+				return nil
+			},
+			Down: "",
 			Dependency: []DbDependency{
 				{
 					Name:    "service1",

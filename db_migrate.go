@@ -270,11 +270,7 @@ func (m *MigrationManager) executeMigration(serviceName string, migrationModel m
 			if len(migration.Up) > 0 {
 				return tx.Exec(migration.Up).Error
 			} else {
-				db, err := tx.DB()
-				if err != nil {
-					return err
-				}
-				return migration.UpF(db)
+				return migration.UpF(m)
 			}
 		})
 
@@ -296,7 +292,7 @@ func (m *MigrationManager) executeMigration(serviceName string, migrationModel m
 				return err
 			}
 		} else {
-			err = migration.UpF(db)
+			err = migration.UpF(m)
 			if err != nil {
 				m.logger.Printf("Migration fail, service: %s, err: %s\n", serviceName, err)
 				return err

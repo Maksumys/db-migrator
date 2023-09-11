@@ -28,8 +28,8 @@ type Migration struct {
 	Up   string
 	Down string
 
-	UpF   func(db *sql.DB) error
-	DownF func(db *sql.DB) error
+	UpF   func(migrator *MigrationManager) error
+	DownF func(migrator *MigrationManager) error
 
 	CheckSum            func(db *sql.DB) string
 	Identifier          uint32
