@@ -14,19 +14,34 @@ import (
 // Новые миграции при вызове Downgrade не сохраняются.
 //
 // Паникует в случае, если какая-либо из миграций не была найдена.
-func (m *MigrationManager) Downgrade() (err error) {
+func (m *MigrationManager) Downgrade(serviceName string) (err error) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	service, ok := m.services[serviceName]
+
+	if !ok {
+		m.logger.Printf("service %s not found", serviceName)
+		return fmt.Errorf("service %s not found", serviceName)
+	}
+
+	service.db = service.connectFunc()
+	defer func() {
+		service.disconnectFunc(service.db)
+	}()
+
 	m.logger.Println("Preparing downgrade execution")
 
-	if !repository.HasVersionTable(m.db) || !repository.HasVersionTable(m.db) {
+	if !repository.HasVersionTable(service.db) || !repository.HasVersionTable(service.db) {
 		panic("No migration table or Version table found. Cannot perform downgrade")
 	}
 
-	savedMigrations, err := repository.GetMigrationsSorted(m.db, repository.OrderDESC)
+	savedMigrations, err := repository.GetMigrationsSorted(service.db, repository.OrderDESC)
 	if err != nil {
 		return err
 	}
 
-	plan, err := m.planDowngrade()
+	plan, err := m.planDowngrade(serviceName)
 	if err != nil {
 		return err
 	}
@@ -34,7 +49,12 @@ func (m *MigrationManager) Downgrade() (err error) {
 	for !plan.IsEmpty() {
 		migrationModel := plan.PopFirst()
 
-		migration, ok := m.findMigration(migrationModel)
+		migration, ok, err := m.findMigration(serviceName, migrationModel)
+
+		if err != nil {
+			return err
+		}
+
 		if !ok {
 			panic(fmt.Sprintf(
 				"migration (type: %s, Version: %s) not found\n",
@@ -42,12 +62,12 @@ func (m *MigrationManager) Downgrade() (err error) {
 			))
 		}
 
-		err = m.executeDowngrade(migrationModel, migration)
+		err = m.executeDowngrade(serviceName, migrationModel, migration)
 		if err != nil {
 			return err
 		}
 
-		err = m.saveStateAfterDowngrading(savedMigrations, migrationModel, migration)
+		err = m.saveStateAfterDowngrading(serviceName, savedMigrations, migrationModel, migration)
 		if err != nil {
 			return err
 		}
@@ -57,8 +77,8 @@ func (m *MigrationManager) Downgrade() (err error) {
 	return
 }
 
-func (m *MigrationManager) planDowngrade() (migrationsPlan, error) {
-	savedMigrations, err := m.saveNewMigrations()
+func (m *MigrationManager) planDowngrade(serviceName string) (migrationsPlan, error) {
+	savedMigrations, err := m.saveNewMigrations(serviceName)
 	if err != nil {
 		return migrationsPlan{}, err
 	}
@@ -68,10 +88,17 @@ func (m *MigrationManager) planDowngrade() (migrationsPlan, error) {
 		savedMigrations: savedMigrations,
 	}
 
-	return planner.MakePlan(), nil
+	return planner.MakePlan(serviceName), nil
 }
 
-func (m *MigrationManager) executeDowngrade(migrationModel models.MigrationModel, migration *MigrationLite) error {
+func (m *MigrationManager) executeDowngrade(serviceName string, migrationModel models.MigrationModel, migration *Migration) error {
+	service, ok := m.services[serviceName]
+
+	if !ok {
+		m.logger.Printf("service %s not found", serviceName)
+		return fmt.Errorf("service %s not found", serviceName)
+	}
+
 	m.logger.Printf(
 		"Downgrading %s migration: Version %s. State: %s\n",
 		migrationModel.Type, migrationModel.Version, migrationModel.State,
@@ -85,7 +112,7 @@ func (m *MigrationManager) executeDowngrade(migrationModel models.MigrationModel
 	}
 
 	if migration.IsTransactional {
-		err := m.db.Transaction(func(tx *gorm.DB) error {
+		err := service.db.Transaction(func(tx *gorm.DB) error {
 			if len(migration.Down) > 0 {
 				return tx.Exec(migration.Down).Error
 			} else {
@@ -102,7 +129,7 @@ func (m *MigrationManager) executeDowngrade(migrationModel models.MigrationModel
 			return err
 		}
 	} else {
-		db, err := m.db.DB()
+		db, err := service.db.DB()
 		if err != nil {
 			return err
 		}
@@ -121,30 +148,45 @@ func (m *MigrationManager) executeDowngrade(migrationModel models.MigrationModel
 	return nil
 }
 
-func (m *MigrationManager) saveStateAfterDowngrading(savedMigrations []models.MigrationModel, migrationModel models.MigrationModel, migration *MigrationLite) error {
+func (m *MigrationManager) saveStateAfterDowngrading(serviceName string, savedMigrations []models.MigrationModel, migrationModel models.MigrationModel, migration *Migration) error {
+	service, ok := m.services[serviceName]
+
+	if !ok {
+		m.logger.Printf("service %s not found", serviceName)
+		return fmt.Errorf("service %s not found", serviceName)
+	}
+
 	if migration.CheckSum == nil {
 		migration.CheckSum = func(db *sql.DB) string {
 			return ""
 		}
 	}
 
-	db, err := m.db.DB()
+	db, err := service.db.DB()
 	if err != nil {
 		return err
 	}
 
-	err = repository.UpdateMigrationStateExecuted(m.db, &migrationModel, models.StateUndone, migration.CheckSum(db))
+	err = repository.UpdateMigrationStateExecuted(service.db, &migrationModel, models.StateUndone, migration.CheckSum(db))
 	if err != nil {
 		return err
 	}
 
-	return m.saveVersionDowngrade(migrationModel, savedMigrations)
+	return m.saveVersionDowngrade(serviceName, migrationModel, savedMigrations)
 }
 
 func (m *MigrationManager) saveVersionDowngrade(
+	serviceName string,
 	migrationModel models.MigrationModel,
 	savedMigrations []models.MigrationModel,
 ) error {
+	service, ok := m.services[serviceName]
+
+	if !ok {
+		m.logger.Printf("service %s not found", serviceName)
+		return fmt.Errorf("service %s not found", serviceName)
+	}
+
 	// фильтруем миграции типа TypeRepeatable
 	filteredMigrations := make([]models.MigrationModel, 0, len(savedMigrations))
 	for i := range savedMigrations {
@@ -178,5 +220,5 @@ func (m *MigrationManager) saveVersionDowngrade(
 		}
 	}
 
-	return repository.SaveVersion(m.db, versionToSave.String())
+	return repository.SaveVersion(service.db, versionToSave.String())
 }

@@ -11,4 +11,4 @@
 
 
 ### Пример использования
-см. examples
+см. [migrate_test.go](migrate_test.go)

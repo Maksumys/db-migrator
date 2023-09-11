@@ -9,6 +9,7 @@ import (
 	"hash/fnv"
 	"log"
 	"os"
+	"sync"
 )
 
 var (
@@ -19,18 +20,10 @@ var (
 
 // NewMigrationsManager создает экземпляр управляющего миграциями (выступает в качестве фасада).
 // targetVersion - версия, до которой необходимо выполнить миграцию или до необходимо осуществить откат.
-func NewMigrationsManager(db *gorm.DB, targetVersion string, opts ...ManagerOption) (*MigrationManager, error) {
-	target, err := parseVersion(targetVersion)
-	if err != nil {
-		return nil, err
-	}
-
+func NewMigrationsManager(opts ...ManagerOption) (*MigrationManager, error) {
 	manager := MigrationManager{
-		db:                      db,
-		logger:                  log.New(os.Stderr, "", log.LstdFlags),
-		targetVersion:           target,
-		registeredMigrations:    make([]*MigrationLite, 0),
-		registeredMigrationsSet: make(map[uint32]*MigrationLite),
+		logger:   log.New(os.Stderr, "", log.LstdFlags),
+		services: make(map[string]*ServiceInfo),
 	}
 	for _, opt := range opts {
 		opt(&manager)
@@ -39,42 +32,90 @@ func NewMigrationsManager(db *gorm.DB, targetVersion string, opts ...ManagerOpti
 	return &manager, nil
 }
 
-type MigrationManager struct {
-	db     *gorm.DB
-	logger *log.Logger
-
-	targetVersion Version
-
-	registeredMigrations    []*MigrationLite
-	registeredMigrationsSet map[uint32]*MigrationLite
+type ServiceInfo struct {
+	db                      *gorm.DB
+	connectFunc             func() *gorm.DB
+	disconnectFunc          func(db *gorm.DB)
+	targetVersion           Version
+	registeredMigrations    []*Migration
+	registeredMigrationsSet map[uint32]*Migration
 }
 
-// RegisterLite сохраняет миграции в память.
+type MigrationManager struct {
+	logger   *log.Logger
+	services map[string]*ServiceInfo
+
+	mutex sync.Mutex
+}
+
+func (m *MigrationManager) RegisterService(name string, connectFunc func() *gorm.DB, disconnectFunc func(db *gorm.DB), targetVersion string) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	parsedTargetVersion, err := parseVersion(targetVersion)
+	if err != nil {
+		return err
+	}
+
+	service, ok := m.services[name]
+
+	if !ok {
+		m.services[name] = &ServiceInfo{
+			connectFunc:             connectFunc,
+			disconnectFunc:          disconnectFunc,
+			targetVersion:           parsedTargetVersion,
+			registeredMigrations:    make([]*Migration, 0),
+			registeredMigrationsSet: make(map[uint32]*Migration),
+		}
+	} else {
+		service.connectFunc = connectFunc
+		service.disconnectFunc = disconnectFunc
+		service.targetVersion = parsedTargetVersion
+		m.services[name] = service
+	}
+
+	return nil
+}
+
+// Register сохраняет миграции в память.
 // По умолчанию миграции осуществляются внутри транзакции.
 //
 // Паникует при регистрации миграций с одинаковымм версией и типом.
-func (m *MigrationManager) RegisterLite(migrationsStruct ...MigrationLite) {
+func (m *MigrationManager) Register(serviceName string, migrationsStruct ...Migration) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	service, ok := m.services[serviceName]
+
+	if !ok {
+		m.services[serviceName] = &ServiceInfo{
+			registeredMigrations:    make([]*Migration, 0),
+			registeredMigrationsSet: make(map[uint32]*Migration),
+		}
+	}
+
 	for i := 0; i < len(migrationsStruct); i++ {
 		identifier := getMigrationIdentifier(migrationsStruct[i].Version, string(migrationsStruct[i].MigrationType))
-		if _, ok := m.registeredMigrationsSet[identifier]; ok {
-			panic(fmt.Sprintf(
-				"Migration with same Identifier twice. Type: %s. Identifier: %d",
-				migrationsStruct[i].MigrationType, identifier,
-			))
+		if _, ok = service.registeredMigrationsSet[identifier]; ok {
+			continue
 		}
 
 		migrationsStruct[i].Identifier = identifier
-		m.registeredMigrationsSet[identifier] = &migrationsStruct[i]
-		m.registeredMigrations = append(m.registeredMigrations, &migrationsStruct[i])
+		service.registeredMigrationsSet[identifier] = &migrationsStruct[i]
+		service.registeredMigrations = append(service.registeredMigrations, &migrationsStruct[i])
 	}
-	return
+
+	return nil
 }
 
 // CheckFulfillment проверяет корректность установки всех миграций. Проверяется, что нет миграций со статусом
 // models.StateFailure, затем проверяется, что все зарегистрированные миграции выше послденей сохраненной версии сохранены и
 // выполнены успешно, затем проверяется, что target версия установлена выше или равной последней найденной миграции.
-func (m *MigrationManager) CheckFulfillment() (reasonErr error, ok bool, err error) {
-	hasForthcoming, err := m.HasForthcomingMigrations()
+func (m *MigrationManager) CheckFulfillment(serviceName string) (reasonErr error, ok bool, err error) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	hasForthcoming, err := m.hasForthcomingMigrations(serviceName)
 	if err != nil {
 		return nil, false, err
 	}
@@ -82,7 +123,7 @@ func (m *MigrationManager) CheckFulfillment() (reasonErr error, ok bool, err err
 		return ErrHasForthcomingMigrations, false, nil
 	}
 
-	hasFailedMigrations, err := m.HasFailedMigrations()
+	hasFailedMigrations, err := m.hasFailedMigrations(serviceName)
 	if err != nil {
 		return nil, false, err
 	}
@@ -90,7 +131,7 @@ func (m *MigrationManager) CheckFulfillment() (reasonErr error, ok bool, err err
 		return ErrHasFailedMigrations, false, err
 	}
 
-	targetVersionNotLatest, err := m.TargetVersionNotLatest()
+	targetVersionNotLatest, err := m.targetVersionNotLatest(serviceName)
 	if err != nil {
 		return nil, false, err
 	}
@@ -101,14 +142,21 @@ func (m *MigrationManager) CheckFulfillment() (reasonErr error, ok bool, err err
 	return nil, true, nil
 }
 
-// HasFailedMigrations определяет есть ли миграции, не выполненные из-за ошибки.
-func (m *MigrationManager) HasFailedMigrations() (bool, error) {
+// hasFailedMigrations определяет есть ли миграции, не выполненные из-за ошибки.
+func (m *MigrationManager) hasFailedMigrations(serviceName string) (bool, error) {
+	service, ok := m.services[serviceName]
+
+	if !ok {
+		m.logger.Printf("service %s not found", serviceName)
+		return false, fmt.Errorf("service %s not found", serviceName)
+	}
+
 	// не было выполнено ни одной, следовательно пока ошибок не было
-	if !repository.HasVersionTable(m.db) || !repository.HasMigrationsTable(m.db) {
+	if !repository.HasVersionTable(service.db) || !repository.HasMigrationsTable(service.db) {
 		return false, nil
 	}
 
-	savedMigrations, err := repository.GetMigrationsSorted(m.db, repository.OrderASC)
+	savedMigrations, err := repository.GetMigrationsSorted(service.db, repository.OrderASC)
 	if err != nil {
 		return false, err
 	}
@@ -121,17 +169,28 @@ func (m *MigrationManager) HasFailedMigrations() (bool, error) {
 	return false, nil
 }
 
-// HasForthcomingMigrations проверяет, есть ли зарегистрированные или сохраненные невыполненные миграции, выше текущей
+// hasForthcomingMigrations проверяет, есть ли зарегистрированные или сохраненные невыполненные миграции, выше текущей
 // сохраненной версии.
-func (m *MigrationManager) HasForthcomingMigrations() (bool, error) {
+func (m *MigrationManager) hasForthcomingMigrations(serviceName string) (bool, error) {
+	service, ok := m.services[serviceName]
+
+	if !ok {
+		m.logger.Printf("service %s not found", serviceName)
+		return false, fmt.Errorf("service %s not found", serviceName)
+	}
+
 	// не было выполнено ни одной
-	if !repository.HasVersionTable(m.db) || !repository.HasMigrationsTable(m.db) {
+	if !repository.HasVersionTable(service.db) || !repository.HasMigrationsTable(service.db) {
 		return true, nil
 	}
 
-	savedVersion := m.getSavedAppVersion()
+	savedVersion, err := m.getSavedAppVersion(serviceName)
 
-	savedMigrations, err := repository.GetMigrationsSorted(m.db, repository.OrderASC)
+	if err != nil {
+		return false, err
+	}
+
+	savedMigrations, err := repository.GetMigrationsSorted(service.db, repository.OrderASC)
 	if err != nil {
 		return false, err
 	}
@@ -143,10 +202,10 @@ func (m *MigrationManager) HasForthcomingMigrations() (bool, error) {
 		}
 	}
 
-	for i := range m.registeredMigrations {
+	for i := range service.registeredMigrations {
 		// достаточно проверить, что миграция еще не сохранена, т.к. создание новых миграций разрешено только для версий
 		// выше текущей максимальной версии сохраненных миграций
-		if migrationIsNew(m.registeredMigrations[i], savedMigrations) {
+		if migrationIsNew(service.registeredMigrations[i], savedMigrations) {
 			return true, nil
 		}
 	}
@@ -154,29 +213,36 @@ func (m *MigrationManager) HasForthcomingMigrations() (bool, error) {
 	return false, nil
 }
 
-// TargetVersionNotLatest проверяет, является ли target версия выше или равной максимальной версии зарегистрированной
+// targetVersionNotLatest проверяет, является ли target версия выше или равной максимальной версии зарегистрированной
 // или сохраненной миграции.
-func (m *MigrationManager) TargetVersionNotLatest() (bool, error) {
+func (m *MigrationManager) targetVersionNotLatest(serviceName string) (bool, error) {
+	service, ok := m.services[serviceName]
+
+	if !ok {
+		m.logger.Printf("service %s not found", serviceName)
+		return false, fmt.Errorf("service %s not found", serviceName)
+	}
+
 	// не было выполнено ни одной, следовательно пока ошибок не было
-	if !repository.HasVersionTable(m.db) || !repository.HasMigrationsTable(m.db) {
+	if !repository.HasVersionTable(service.db) || !repository.HasMigrationsTable(service.db) {
 		return false, nil
 	}
 
-	savedMigrations, err := repository.GetMigrationsSorted(m.db, repository.OrderASC)
+	savedMigrations, err := repository.GetMigrationsSorted(service.db, repository.OrderASC)
 	if err != nil {
 		return false, err
 	}
 
 	for i := range savedMigrations {
 		migrationVersion := mustParseVersion(savedMigrations[i].Version)
-		if !m.targetVersion.MoreOrEqual(migrationVersion) {
+		if !service.targetVersion.MoreOrEqual(migrationVersion) {
 			return true, nil
 		}
 	}
 
-	for i := range m.registeredMigrations {
-		migrationVersion := mustParseVersion(m.registeredMigrations[i].Version)
-		if !m.targetVersion.MoreOrEqual(migrationVersion) {
+	for i := range service.registeredMigrations {
+		migrationVersion := mustParseVersion(service.registeredMigrations[i].Version)
+		if !service.targetVersion.MoreOrEqual(migrationVersion) {
 			return true, nil
 		}
 	}
@@ -184,33 +250,44 @@ func (m *MigrationManager) TargetVersionNotLatest() (bool, error) {
 	return false, nil
 }
 
-func (m *MigrationManager) findMigration(migrationModel models.MigrationModel) (*MigrationLite, bool) {
+func (m *MigrationManager) findMigration(serviceName string, migrationModel models.MigrationModel) (*Migration, bool, error) {
+	service, ok := m.services[serviceName]
+
+	if !ok {
+		m.logger.Printf("service %s not found", serviceName)
+		return nil, false, fmt.Errorf("service %s not found", serviceName)
+	}
+
 	migrationModelIdentifier := getMigrationIdentifier(migrationModel.Version, migrationModel.Type)
 
-	for _, migration := range m.registeredMigrations {
+	for _, migration := range service.registeredMigrations {
 		registeredMigrationIdentifier := getMigrationIdentifier(migration.Version, string(migration.MigrationType))
 		if registeredMigrationIdentifier == migrationModelIdentifier {
-			return migration, true
+			return migration, true, nil
 		}
 	}
 
-	return nil, false
+	return nil, false, nil
 }
 
-func (m *MigrationManager) getSavedAppVersion() Version {
-	savedAppVersion, err := repository.GetVersion(m.db)
+func (m *MigrationManager) getSavedAppVersion(serviceName string) (Version, error) {
+	service, ok := m.services[serviceName]
+
+	if !ok {
+		m.logger.Printf("service %s not found", serviceName)
+		return Version{}, fmt.Errorf("service %s not found", serviceName)
+	}
+
+	savedAppVersion, err := repository.GetVersion(service.db)
 	// если текущая версия миграции не найдена, возвращаем версию 0.0.0, как минимально возможную
-	if err == repository.ErrNotFound {
-		return Version{}
-	}
 	if err != nil {
-		return Version{}
+		return Version{}, err
 	}
 
-	return mustParseVersion(savedAppVersion)
+	return mustParseVersion(savedAppVersion), nil
 }
 
-func migrationIsNew(migration *MigrationLite, savedMigrations []models.MigrationModel) bool {
+func migrationIsNew(migration *Migration, savedMigrations []models.MigrationModel) bool {
 	for j := range savedMigrations {
 		savedMigrationIdentifier := getMigrationIdentifier(savedMigrations[j].Version, savedMigrations[j].Type)
 		if migration.Identifier == savedMigrationIdentifier {

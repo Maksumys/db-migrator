@@ -1,7 +1,7 @@
 package db_migrator
 
 import (
-	"gorm.io/gorm"
+	"database/sql"
 )
 
 type MigrationType string
@@ -12,66 +12,28 @@ const (
 	TypeRepeatable MigrationType = "repeatable"
 )
 
-type Migrator interface {
-	Migrate(db *gorm.DB) error
-	Description() string
-	Version() Version
-}
-
-type VersionedMigrator interface {
-	Migrator
-	Downgrade(db *gorm.DB) error
-}
-
-type RepeatableMigrator interface {
-	Migrator
-	Checksum() string
-}
-
-func NewBaselineMigration(migrator Migrator) *Migration {
-	return &Migration{
-		transaction:   true,
-		migrationType: TypeBaseline,
-		migrator:      migrator,
-		version:       migrator.Version().String(),
-	}
-}
-
-func NewVersionedMigration(migrator VersionedMigrator) *Migration {
-	return &Migration{
-		transaction:   true,
-		migrationType: TypeVersioned,
-		migrator:      migrator,
-		version:       migrator.Version().String(),
-	}
-}
-
-func NewRepeatableMigration(migrator RepeatableMigrator, opts ...RepeatableMigratorOption) *Migration {
-	migration := Migration{
-		transaction:         true,
-		repeatUnconditional: false,
-		migrationType:       TypeRepeatable,
-		migrator:            migrator,
-		version:             migrator.Version().String(),
-		checksum:            migrator.Checksum(),
-	}
-
-	for _, opt := range opts {
-		opt(&migration)
-	}
-	return &migration
+type DbDependency struct {
+	Name    string
+	Version string
 }
 
 type Migration struct {
-	// настраиваемые параметры миграции
-	transaction         bool
-	repeatUnconditional bool
-	allowFailure        bool
+	MigrationType MigrationType
+	Version       string
+	Description   string
 
-	// свойства миграции
-	identifier    uint32
-	version       string
-	checksum      string
-	migrationType MigrationType
-	migrator      Migrator
+	IsTransactional bool
+	IsAllowFailure  bool
+
+	Up   string
+	Down string
+
+	UpF   func(db *sql.DB) error
+	DownF func(db *sql.DB) error
+
+	CheckSum            func(db *sql.DB) string
+	Identifier          uint32
+	RepeatUnconditional bool
+
+	Dependency []DbDependency
 }

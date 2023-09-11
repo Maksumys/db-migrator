@@ -7,7 +7,7 @@ type MigrationOption func(*Migration)
 // вложенная транзакция для данной миграции не создается.
 func WithTransaction(useTransaction bool) MigrationOption {
 	return func(m *Migration) {
-		m.transaction = useTransaction
+		m.IsTransactional = useTransaction
 	}
 }
 
@@ -17,6 +17,6 @@ type RepeatableMigratorOption func(*Migration)
 // ее при каждом запуске Migrate.
 func WithRepeatUnconditional() RepeatableMigratorOption {
 	return func(m *Migration) {
-		m.repeatUnconditional = true
+		m.RepeatUnconditional = true
 	}
 }
