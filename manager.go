@@ -78,6 +78,11 @@ func (m *MigrationManager) RegisterService(name string, connectFunc func() *gorm
 	return nil
 }
 
+func (m *MigrationManager) GetServiceInfoUnsafe(name string) (*ServiceInfo, bool) {
+	serviceInfo, ok := m.services[name]
+	return serviceInfo, ok
+}
+
 // Register сохраняет миграции в память.
 // По умолчанию миграции осуществляются внутри транзакции.
 //
