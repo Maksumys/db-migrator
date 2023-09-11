@@ -60,13 +60,14 @@ func (m *MigrationManager) RegisterService(name string, connectFunc func() *gorm
 	service, ok := m.services[name]
 
 	if !ok {
-		m.services[name] = &ServiceInfo{
+		service = &ServiceInfo{
 			connectFunc:             connectFunc,
 			disconnectFunc:          disconnectFunc,
 			targetVersion:           parsedTargetVersion,
 			registeredMigrations:    make([]*Migration, 0),
 			registeredMigrationsSet: make(map[uint32]*Migration),
 		}
+		m.services[name] = service
 	} else {
 		service.connectFunc = connectFunc
 		service.disconnectFunc = disconnectFunc
