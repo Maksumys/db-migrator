@@ -89,10 +89,12 @@ func (m *MigrationManager) Register(serviceName string, migrationsStruct ...Migr
 	service, ok := m.services[serviceName]
 
 	if !ok {
-		m.services[serviceName] = &ServiceInfo{
+		service = &ServiceInfo{
 			registeredMigrations:    make([]*Migration, 0),
 			registeredMigrationsSet: make(map[uint32]*Migration),
 		}
+
+		m.services[serviceName] = service
 	}
 
 	for i := 0; i < len(migrationsStruct); i++ {
