@@ -123,6 +123,18 @@ func (m *MigrationManager) CheckFulfillment(serviceName string) (reasonErr error
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
+	service, ok := m.services[serviceName]
+
+	if !ok {
+		m.logger.Printf("service %s not found", serviceName)
+		return errors.New("service not found"), false, fmt.Errorf("service %s not found", serviceName)
+	}
+
+	service.Db = service.ConnectFunc()
+	defer func() {
+		service.DisconnectFunc(service.Db)
+	}()
+
 	hasForthcoming, err := m.hasForthcomingMigrations(serviceName)
 	if err != nil {
 		return nil, false, err
