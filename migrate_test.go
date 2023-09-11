@@ -188,7 +188,7 @@ func DB2(migrator *MigrationManager) error {
 			Version:       "1.0.1.0",
 			Description:   "up connections2",
 			Up:            "alter table connections add column four text;",
-			UpF: func(migrator *MigrationManager) error {
+			UpF: func(selfDb *gorm.DB, depsDb map[string]*gorm.DB) error {
 				return nil
 			},
 			Down: "",

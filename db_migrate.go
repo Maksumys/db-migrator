@@ -232,37 +232,42 @@ func (m *MigrationManager) executeMigration(serviceName string, migrationModel m
 		return errors.New("fail to migrate, because Up and upf is empty or both is not nil")
 	}
 
+	depsServices := make(map[string]*ServiceInfo)
+
+	defer func() {
+		for _, v := range depsServices {
+			v.DisconnectFunc(v.Db)
+		}
+	}()
+
 	if migration.Dependency != nil && len(migration.Dependency) > 0 {
 		for _, dependency := range migration.Dependency {
-			err := func() error {
-				depsService, ok := m.services[dependency.Name]
+			depsService, ok := m.services[dependency.Name]
 
-				if !ok {
-					m.logger.Printf("Migration fail, dependency is not valid, service: %s\n", serviceName)
-					return errors.New("dependency is not valid")
+			if !ok {
+				m.logger.Printf("Migration fail, dependency is not valid, service: %s\n", serviceName)
+				return errors.New("dependency is not valid")
+			}
+
+			depsService.Db = depsService.ConnectFunc()
+			depsServices[dependency.Name] = depsService
+
+			if repository.HasVersionTable(depsService.Db) {
+				version, err := repository.GetVersion(depsService.Db)
+				if err != nil {
+					return err
 				}
-
-				depsService.Db = depsService.ConnectFunc()
-				defer func() {
-					depsService.DisconnectFunc(depsService.Db)
-				}()
-
-				if repository.HasVersionTable(depsService.Db) {
-					version, err := repository.GetVersion(depsService.Db)
-					if err != nil {
-						return err
-					}
-					if dependency.Version != version {
-						return errors.New("dependency version is not valid")
-					}
+				if dependency.Version != version {
+					return errors.New("dependency version is not valid")
 				}
-
-				return nil
-			}()
-			if err != nil {
-				return err
 			}
 		}
+	}
+
+	depsServicesDb := make(map[string]*gorm.DB)
+
+	for s, info := range depsServices {
+		depsServicesDb[s] = info.Db
 	}
 
 	if migration.IsTransactional {
@@ -270,7 +275,7 @@ func (m *MigrationManager) executeMigration(serviceName string, migrationModel m
 			if len(migration.Up) > 0 {
 				return tx.Exec(migration.Up).Error
 			} else {
-				return migration.UpF(m)
+				return migration.UpF(tx, depsServicesDb)
 			}
 		})
 
@@ -292,7 +297,7 @@ func (m *MigrationManager) executeMigration(serviceName string, migrationModel m
 				return err
 			}
 		} else {
-			err = migration.UpF(m)
+			err = migration.UpF(service.Db, depsServicesDb)
 			if err != nil {
 				m.logger.Printf("Migration fail, service: %s, err: %s\n", serviceName, err)
 				return err

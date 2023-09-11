@@ -116,7 +116,7 @@ func (m *MigrationManager) executeDowngrade(serviceName string, migrationModel m
 			if len(migration.Down) > 0 {
 				return tx.Exec(migration.Down).Error
 			} else {
-				return migration.DownF(m)
+				return migration.DownF(tx, nil)
 			}
 		})
 
@@ -136,7 +136,7 @@ func (m *MigrationManager) executeDowngrade(serviceName string, migrationModel m
 				return err
 			}
 		} else {
-			return migration.DownF(m)
+			return migration.DownF(service.Db, nil)
 		}
 	}
 
