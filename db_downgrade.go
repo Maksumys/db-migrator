@@ -25,18 +25,18 @@ func (m *MigrationManager) Downgrade(serviceName string) (err error) {
 		return fmt.Errorf("service %s not found", serviceName)
 	}
 
-	service.db = service.connectFunc()
+	service.Db = service.ConnectFunc()
 	defer func() {
-		service.disconnectFunc(service.db)
+		service.DisconnectFunc(service.Db)
 	}()
 
 	m.logger.Println("Preparing downgrade execution")
 
-	if !repository.HasVersionTable(service.db) || !repository.HasVersionTable(service.db) {
+	if !repository.HasVersionTable(service.Db) || !repository.HasVersionTable(service.Db) {
 		panic("No migration table or Version table found. Cannot perform downgrade")
 	}
 
-	savedMigrations, err := repository.GetMigrationsSorted(service.db, repository.OrderDESC)
+	savedMigrations, err := repository.GetMigrationsSorted(service.Db, repository.OrderDESC)
 	if err != nil {
 		return err
 	}
@@ -112,7 +112,7 @@ func (m *MigrationManager) executeDowngrade(serviceName string, migrationModel m
 	}
 
 	if migration.IsTransactional {
-		err := service.db.Transaction(func(tx *gorm.DB) error {
+		err := service.Db.Transaction(func(tx *gorm.DB) error {
 			if len(migration.Down) > 0 {
 				return tx.Exec(migration.Down).Error
 			} else {
@@ -125,7 +125,7 @@ func (m *MigrationManager) executeDowngrade(serviceName string, migrationModel m
 			return err
 		}
 	} else {
-		db, err := service.db.DB()
+		db, err := service.Db.DB()
 		if err != nil {
 			return err
 		}
@@ -158,12 +158,12 @@ func (m *MigrationManager) saveStateAfterDowngrading(serviceName string, savedMi
 		}
 	}
 
-	db, err := service.db.DB()
+	db, err := service.Db.DB()
 	if err != nil {
 		return err
 	}
 
-	err = repository.UpdateMigrationStateExecuted(service.db, &migrationModel, models.StateUndone, migration.CheckSum(db))
+	err = repository.UpdateMigrationStateExecuted(service.Db, &migrationModel, models.StateUndone, migration.CheckSum(db))
 	if err != nil {
 		return err
 	}
@@ -216,5 +216,5 @@ func (m *MigrationManager) saveVersionDowngrade(
 		}
 	}
 
-	return repository.SaveVersion(service.db, versionToSave.String())
+	return repository.SaveVersion(service.Db, versionToSave.String())
 }

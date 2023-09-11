@@ -14,12 +14,12 @@ import (
 
 var (
 	ErrHasForthcomingMigrations = errors.New("found not completed forthcoming migrations, consider migrating")
-	ErrHasFailedMigrations      = errors.New("found failed migrations, consider fixing your db")
+	ErrHasFailedMigrations      = errors.New("found failed migrations, consider fixing your Db")
 	ErrTargetVersionNotLatest   = errors.New("target Version falls behind migrations, consider raising target Version")
 )
 
 // NewMigrationsManager создает экземпляр управляющего миграциями (выступает в качестве фасада).
-// targetVersion - версия, до которой необходимо выполнить миграцию или до необходимо осуществить откат.
+// TargetVersion - версия, до которой необходимо выполнить миграцию или до необходимо осуществить откат.
 func NewMigrationsManager(opts ...ManagerOption) (*MigrationManager, error) {
 	manager := MigrationManager{
 		logger:   log.New(os.Stderr, "", log.LstdFlags),
@@ -33,10 +33,10 @@ func NewMigrationsManager(opts ...ManagerOption) (*MigrationManager, error) {
 }
 
 type ServiceInfo struct {
-	db                      *gorm.DB
-	connectFunc             func() *gorm.DB
-	disconnectFunc          func(db *gorm.DB)
-	targetVersion           Version
+	Db                      *gorm.DB
+	ConnectFunc             func() *gorm.DB
+	DisconnectFunc          func(db *gorm.DB)
+	TargetVersion           Version
 	registeredMigrations    []*Migration
 	registeredMigrationsSet map[uint32]*Migration
 }
@@ -61,17 +61,17 @@ func (m *MigrationManager) RegisterService(name string, connectFunc func() *gorm
 
 	if !ok {
 		service = &ServiceInfo{
-			connectFunc:             connectFunc,
-			disconnectFunc:          disconnectFunc,
-			targetVersion:           parsedTargetVersion,
+			ConnectFunc:             connectFunc,
+			DisconnectFunc:          disconnectFunc,
+			TargetVersion:           parsedTargetVersion,
 			registeredMigrations:    make([]*Migration, 0),
 			registeredMigrationsSet: make(map[uint32]*Migration),
 		}
 		m.services[name] = service
 	} else {
-		service.connectFunc = connectFunc
-		service.disconnectFunc = disconnectFunc
-		service.targetVersion = parsedTargetVersion
+		service.ConnectFunc = connectFunc
+		service.DisconnectFunc = disconnectFunc
+		service.TargetVersion = parsedTargetVersion
 		m.services[name] = service
 	}
 
@@ -160,11 +160,11 @@ func (m *MigrationManager) hasFailedMigrations(serviceName string) (bool, error)
 	}
 
 	// не было выполнено ни одной, следовательно пока ошибок не было
-	if !repository.HasVersionTable(service.db) || !repository.HasMigrationsTable(service.db) {
+	if !repository.HasVersionTable(service.Db) || !repository.HasMigrationsTable(service.Db) {
 		return false, nil
 	}
 
-	savedMigrations, err := repository.GetMigrationsSorted(service.db, repository.OrderASC)
+	savedMigrations, err := repository.GetMigrationsSorted(service.Db, repository.OrderASC)
 	if err != nil {
 		return false, err
 	}
@@ -188,7 +188,7 @@ func (m *MigrationManager) hasForthcomingMigrations(serviceName string) (bool, e
 	}
 
 	// не было выполнено ни одной
-	if !repository.HasVersionTable(service.db) || !repository.HasMigrationsTable(service.db) {
+	if !repository.HasVersionTable(service.Db) || !repository.HasMigrationsTable(service.Db) {
 		return true, nil
 	}
 
@@ -198,7 +198,7 @@ func (m *MigrationManager) hasForthcomingMigrations(serviceName string) (bool, e
 		return false, err
 	}
 
-	savedMigrations, err := repository.GetMigrationsSorted(service.db, repository.OrderASC)
+	savedMigrations, err := repository.GetMigrationsSorted(service.Db, repository.OrderASC)
 	if err != nil {
 		return false, err
 	}
@@ -232,25 +232,25 @@ func (m *MigrationManager) targetVersionNotLatest(serviceName string) (bool, err
 	}
 
 	// не было выполнено ни одной, следовательно пока ошибок не было
-	if !repository.HasVersionTable(service.db) || !repository.HasMigrationsTable(service.db) {
+	if !repository.HasVersionTable(service.Db) || !repository.HasMigrationsTable(service.Db) {
 		return false, nil
 	}
 
-	savedMigrations, err := repository.GetMigrationsSorted(service.db, repository.OrderASC)
+	savedMigrations, err := repository.GetMigrationsSorted(service.Db, repository.OrderASC)
 	if err != nil {
 		return false, err
 	}
 
 	for i := range savedMigrations {
 		migrationVersion := mustParseVersion(savedMigrations[i].Version)
-		if !service.targetVersion.MoreOrEqual(migrationVersion) {
+		if !service.TargetVersion.MoreOrEqual(migrationVersion) {
 			return true, nil
 		}
 	}
 
 	for i := range service.registeredMigrations {
 		migrationVersion := mustParseVersion(service.registeredMigrations[i].Version)
-		if !service.targetVersion.MoreOrEqual(migrationVersion) {
+		if !service.TargetVersion.MoreOrEqual(migrationVersion) {
 			return true, nil
 		}
 	}
@@ -286,7 +286,7 @@ func (m *MigrationManager) getSavedAppVersion(serviceName string) (Version, erro
 		return Version{}, fmt.Errorf("service %s not found", serviceName)
 	}
 
-	savedAppVersion, err := repository.GetVersion(service.db)
+	savedAppVersion, err := repository.GetVersion(service.Db)
 	// если текущая версия миграции не найдена, возвращаем версию 0.0.0, как минимально возможную
 	if err != nil {
 		return Version{}, err

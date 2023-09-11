@@ -89,7 +89,7 @@ func (p *migratePlanner) planMigrationsVersioned(serviceName string, plan *migra
 
 		migrationVersion := mustParseVersion(migrationModel.Version)
 
-		if migrationVersion.MoreThan(service.targetVersion) {
+		if migrationVersion.MoreThan(service.TargetVersion) {
 			continue
 		}
 
@@ -147,7 +147,7 @@ func (p *migratePlanner) planMigrationsRepeatable(serviceName string, plan *migr
 			}
 		}
 
-		db, err := service.db.DB()
+		db, err := service.Db.DB()
 		if err != nil {
 			return
 		}
@@ -189,7 +189,7 @@ func (p *migratePlanner) findRelevantBaseline(serviceName string) (models.Migrat
 		}
 
 		version := mustParseVersion(migrationModel.Version)
-		if version.LessOrEqual(service.targetVersion) {
+		if version.LessOrEqual(service.TargetVersion) {
 			latestBaselineMigration = migrationModel
 			latestBaselineMigrationFound = true
 		}
@@ -231,7 +231,7 @@ func (p *downgradePlanner) MakePlan(serviceName string) migrationsPlan {
 		if migrationVersion.MoreThan(version) {
 			continue
 		}
-		if migrationVersion.LessOrEqual(service.targetVersion) {
+		if migrationVersion.LessOrEqual(service.TargetVersion) {
 			continue
 		}
 		if migrationModel.State == models.StateUndone {

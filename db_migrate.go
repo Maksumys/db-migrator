@@ -29,9 +29,9 @@ func (m *MigrationManager) Migrate(serviceName string) error {
 		return fmt.Errorf("service %s not found", serviceName)
 	}
 
-	service.db = service.connectFunc()
+	service.Db = service.ConnectFunc()
 	defer func() {
-		service.disconnectFunc(service.db)
+		service.DisconnectFunc(service.Db)
 	}()
 
 	m.logger.Println("Preparing migrations execution")
@@ -69,7 +69,7 @@ func (m *MigrationManager) Migrate(serviceName string) error {
 				"migration (type: %s, Version: %s) not found, skipping",
 				migrationModel.Type, migrationModel.Version,
 			)
-			err = repository.UpdateMigrationState(service.db, &migrationModel, models.StateNotFound)
+			err = repository.UpdateMigrationState(service.Db, &migrationModel, models.StateNotFound)
 			if err != nil {
 				return err
 			}
@@ -79,7 +79,7 @@ func (m *MigrationManager) Migrate(serviceName string) error {
 
 		err = m.executeMigration(serviceName, migrationModel, migration)
 		if err != nil && !migration.IsAllowFailure {
-			return errors.Join(err, repository.UpdateMigrationState(service.db, &migrationModel, models.StateFailure))
+			return errors.Join(err, repository.UpdateMigrationState(service.Db, &migrationModel, models.StateFailure))
 		}
 
 		err = m.saveStateOnSuccessfulMigration(serviceName, savedMigrations, migrationModel, migration)
@@ -108,12 +108,12 @@ func (m *MigrationManager) initSystemTables(serviceName string) error {
 		return fmt.Errorf("service %s not found", serviceName)
 	}
 
-	hasVersionTable := repository.HasVersionTable(service.db)
-	hasMigrationsTable := repository.HasMigrationsTable(service.db)
+	hasVersionTable := repository.HasVersionTable(service.Db)
+	hasMigrationsTable := repository.HasMigrationsTable(service.Db)
 
 	if !hasVersionTable {
 		m.logger.Println("Table versions not found, creating")
-		err := repository.CreateVersionTable(service.db)
+		err := repository.CreateVersionTable(service.Db)
 		if err != nil {
 			return err
 		}
@@ -121,7 +121,7 @@ func (m *MigrationManager) initSystemTables(serviceName string) error {
 
 	if !hasMigrationsTable {
 		m.logger.Println("Table migrations not found, creating")
-		err := repository.CreateMigrationsTable(service.db)
+		err := repository.CreateMigrationsTable(service.Db)
 		if err != nil {
 			return err
 		}
@@ -138,7 +138,7 @@ func (m *MigrationManager) saveNewMigrations(serviceName string) ([]models.Migra
 		return nil, fmt.Errorf("service %s not found", serviceName)
 	}
 
-	savedMigrations, err := repository.GetMigrationsSorted(service.db, repository.OrderASC)
+	savedMigrations, err := repository.GetMigrationsSorted(service.Db, repository.OrderASC)
 	if err != nil {
 		return nil, err
 	}
@@ -190,7 +190,7 @@ func (m *MigrationManager) saveNewMigrations(serviceName string) ([]models.Migra
 		return leftVersioned.LessThan(rightVersioned)
 	})
 
-	err = service.db.Transaction(func(tx *gorm.DB) error {
+	err = service.Db.Transaction(func(tx *gorm.DB) error {
 		for i := range newMigrations {
 			migration, err := repository.SaveMigration(tx, repository.SaveMigrationRequest{
 				Rank:        maxRank + (i + 1),
@@ -242,13 +242,13 @@ func (m *MigrationManager) executeMigration(serviceName string, migrationModel m
 					return errors.New("dependency is not valid")
 				}
 
-				depsService.db = depsService.connectFunc()
+				depsService.Db = depsService.ConnectFunc()
 				defer func() {
-					depsService.disconnectFunc(depsService.db)
+					depsService.DisconnectFunc(depsService.Db)
 				}()
 
-				if repository.HasVersionTable(depsService.db) {
-					version, err := repository.GetVersion(depsService.db)
+				if repository.HasVersionTable(depsService.Db) {
+					version, err := repository.GetVersion(depsService.Db)
 					if err != nil {
 						return err
 					}
@@ -266,7 +266,7 @@ func (m *MigrationManager) executeMigration(serviceName string, migrationModel m
 	}
 
 	if migration.IsTransactional {
-		err := service.db.Transaction(func(tx *gorm.DB) error {
+		err := service.Db.Transaction(func(tx *gorm.DB) error {
 			if len(migration.Up) > 0 {
 				return tx.Exec(migration.Up).Error
 			} else {
@@ -279,7 +279,7 @@ func (m *MigrationManager) executeMigration(serviceName string, migrationModel m
 			return err
 		}
 	} else {
-		db, err := service.db.DB()
+		db, err := service.Db.DB()
 		if err != nil {
 			m.logger.Printf("Migration fail, service: %s, err: %s\n", serviceName, err)
 			return err
@@ -319,13 +319,13 @@ func (m *MigrationManager) saveStateOnSuccessfulMigration(
 
 	switch migration.MigrationType {
 	case TypeVersioned:
-		err := repository.SaveVersion(service.db, migration.Version)
+		err := repository.SaveVersion(service.Db, migration.Version)
 		if err != nil {
 			return err
 		}
 
 	case TypeBaseline:
-		err := repository.SaveVersion(service.db, migration.Version)
+		err := repository.SaveVersion(service.Db, migration.Version)
 		if err != nil {
 			return err
 		}
@@ -336,7 +336,7 @@ func (m *MigrationManager) saveStateOnSuccessfulMigration(
 				break
 			}
 
-			err = repository.UpdateMigrationState(service.db, &savedMigrations[i], models.StateSkipped)
+			err = repository.UpdateMigrationState(service.Db, &savedMigrations[i], models.StateSkipped)
 			if err != nil {
 				return err
 			}
@@ -349,13 +349,13 @@ func (m *MigrationManager) saveStateOnSuccessfulMigration(
 		}
 	}
 
-	db, err := service.db.DB()
+	db, err := service.Db.DB()
 
 	if err != nil {
 		return err
 	}
 
-	err = repository.UpdateMigrationStateExecuted(service.db, &migrationModel, models.StateSuccess, migration.CheckSum(db))
+	err = repository.UpdateMigrationStateExecuted(service.Db, &migrationModel, models.StateSuccess, migration.CheckSum(db))
 	if err != nil {
 		return err
 	}
