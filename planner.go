@@ -2,8 +2,8 @@ package db_migrator
 
 import (
 	"container/list"
-	"database/sql"
 	"github.com/Maksumys/db-migrator/internal/models"
+	"gorm.io/gorm"
 	"sort"
 )
 
@@ -142,17 +142,12 @@ func (p *migratePlanner) planMigrationsRepeatable(serviceName string, plan *migr
 		}
 
 		if migration.CheckSum == nil {
-			migration.CheckSum = func(db *sql.DB) string {
+			migration.CheckSum = func(db *gorm.DB) string {
 				return ""
 			}
 		}
 
-		db, err := service.Db.DB()
-		if err != nil {
-			return
-		}
-
-		if !migration.RepeatUnconditional && migrationModel.Checksum == migration.CheckSum(db) {
+		if !migration.RepeatUnconditional && migrationModel.Checksum == migration.CheckSum(service.Db) {
 			p.manager.logger.Printf(
 				"migration (type: %s, Version: %s, checksum: %s) checksum not changed, skipping\n",
 				migrationModel.Type, migrationModel.Version, migrationModel.Checksum,

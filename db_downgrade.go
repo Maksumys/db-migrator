@@ -1,7 +1,6 @@
 package db_migrator
 
 import (
-	"database/sql"
 	"fmt"
 	"github.com/Maksumys/db-migrator/internal/models"
 	"github.com/Maksumys/db-migrator/internal/repository"
@@ -153,17 +152,12 @@ func (m *MigrationManager) saveStateAfterDowngrading(serviceName string, savedMi
 	}
 
 	if migration.CheckSum == nil {
-		migration.CheckSum = func(db *sql.DB) string {
+		migration.CheckSum = func(db *gorm.DB) string {
 			return ""
 		}
 	}
 
-	db, err := service.Db.DB()
-	if err != nil {
-		return err
-	}
-
-	err = repository.UpdateMigrationStateExecuted(service.Db, &migrationModel, models.StateUndone, migration.CheckSum(db))
+	err := repository.UpdateMigrationStateExecuted(service.Db, &migrationModel, models.StateUndone, migration.CheckSum(service.Db))
 	if err != nil {
 		return err
 	}

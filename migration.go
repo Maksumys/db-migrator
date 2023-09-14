@@ -1,7 +1,6 @@
 package db_migrator
 
 import (
-	"database/sql"
 	"gorm.io/gorm"
 )
 
@@ -32,7 +31,7 @@ type Migration struct {
 	UpF   func(selfDb *gorm.DB, depsDb map[string]*gorm.DB) error
 	DownF func(selfDb *gorm.DB, depsDb map[string]*gorm.DB) error
 
-	CheckSum            func(db *sql.DB) string
+	CheckSum            func(selfDb *gorm.DB) string
 	Identifier          uint32
 	RepeatUnconditional bool
 

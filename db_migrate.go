@@ -1,7 +1,6 @@
 package db_migrator
 
 import (
-	"database/sql"
 	"errors"
 	"fmt"
 	"github.com/Maksumys/db-migrator/internal/models"
@@ -349,18 +348,12 @@ func (m *MigrationManager) saveStateOnSuccessfulMigration(
 	}
 
 	if migration.CheckSum == nil {
-		migration.CheckSum = func(db *sql.DB) string {
+		migration.CheckSum = func(db *gorm.DB) string {
 			return ""
 		}
 	}
 
-	db, err := service.Db.DB()
-
-	if err != nil {
-		return err
-	}
-
-	err = repository.UpdateMigrationStateExecuted(service.Db, &migrationModel, models.StateSuccess, migration.CheckSum(db))
+	err := repository.UpdateMigrationStateExecuted(service.Db, &migrationModel, models.StateSuccess, migration.CheckSum(service.Db))
 	if err != nil {
 		return err
 	}
