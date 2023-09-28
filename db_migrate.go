@@ -248,6 +248,11 @@ func (m *MigrationManager) executeMigration(serviceName string, migrationModel m
 				return errors.New("dependency is not valid")
 			}
 
+			if depsService.ConnectFunc == nil {
+				m.logger.Printf("Migration fail, dependency is not registered, service: %s\n", serviceName)
+				return errors.New("dependency is not valid")
+			}
+			
 			depsService.Db = depsService.ConnectFunc()
 			depsServices[dependency.Name] = depsService
 
