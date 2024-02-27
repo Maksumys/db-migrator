@@ -15,6 +15,7 @@ const (
 type DbDependency struct {
 	Name    string
 	Version string
+	Strict  bool
 }
 
 type Migration struct {

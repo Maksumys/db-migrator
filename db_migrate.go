@@ -252,7 +252,7 @@ func (m *MigrationManager) executeMigration(serviceName string, migrationModel m
 				m.logger.Printf("Migration fail, dependency is not registered, service: %s\n", serviceName)
 				return errors.New("dependency is not valid")
 			}
-			
+
 			depsService.Db = depsService.ConnectFunc()
 			depsServices[dependency.Name] = depsService
 
@@ -261,7 +261,22 @@ func (m *MigrationManager) executeMigration(serviceName string, migrationModel m
 				if err != nil {
 					return err
 				}
-				if dependency.Version != version {
+
+				serviceVersion, err := parseVersion(version)
+
+				if err != nil {
+					return err
+				}
+
+				depVersion, err := parseVersion(dependency.Version)
+
+				if err != nil {
+					return err
+				}
+
+				if dependency.Strict && !serviceVersion.Equals(depVersion) {
+					return errors.New("dependency version is not valid")
+				} else if serviceVersion.LessThan(depVersion) {
 					return errors.New("dependency version is not valid")
 				}
 			}
