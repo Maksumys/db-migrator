@@ -171,7 +171,7 @@ func (m *MigrationManager) hasFailedMigrations(serviceName string) (bool, error)
 		return false, fmt.Errorf("service %s not found", serviceName)
 	}
 
-	// не было выполнено ни одной, следовательно пока ошибок не было
+	// не было выполнено ни одной, следовательно, пока ошибок не было
 	if !repository.HasVersionTable(service.Db) || !repository.HasMigrationsTable(service.Db) {
 		return false, nil
 	}
@@ -243,7 +243,7 @@ func (m *MigrationManager) targetVersionNotLatest(serviceName string) (bool, err
 		return false, fmt.Errorf("service %s not found", serviceName)
 	}
 
-	// не было выполнено ни одной, следовательно пока ошибок не было
+	// не было выполнено ни одной, следовательно, пока ошибок не было
 	if !repository.HasVersionTable(service.Db) || !repository.HasMigrationsTable(service.Db) {
 		return false, nil
 	}

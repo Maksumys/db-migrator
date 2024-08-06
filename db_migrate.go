@@ -256,29 +256,35 @@ func (m *MigrationManager) executeMigration(serviceName string, migrationModel m
 			depsService.Db = depsService.ConnectFunc()
 			depsServices[dependency.Name] = depsService
 
-			if repository.HasVersionTable(depsService.Db) {
-				version, err := repository.GetVersion(depsService.Db)
-				if err != nil {
-					return err
-				}
+			if !repository.HasVersionTable(depsService.Db) {
+				return errors.New("dependency is not valid")
+			}
 
-				serviceVersion, err := parseVersion(version)
+			version, err := repository.GetVersion(depsService.Db)
+			if err != nil {
+				return err
+			}
 
-				if err != nil {
-					return err
-				}
+			if len(version) == 0 {
+				return errors.New("dependency is not valid")
+			}
 
-				depVersion, err := parseVersion(dependency.Version)
+			serviceVersion, err := parseVersion(version)
 
-				if err != nil {
-					return err
-				}
+			if err != nil {
+				return err
+			}
 
-				if dependency.Strict && !serviceVersion.Equals(depVersion) {
-					return errors.New("dependency version is not valid")
-				} else if serviceVersion.LessThan(depVersion) {
-					return errors.New("dependency version is not valid")
-				}
+			depVersion, err := parseVersion(dependency.Version)
+
+			if err != nil {
+				return err
+			}
+
+			if dependency.Strict && !serviceVersion.Equals(depVersion) {
+				return errors.New("dependency version is not valid")
+			} else if serviceVersion.LessThan(depVersion) {
+				return errors.New("dependency version is not valid")
 			}
 		}
 	}

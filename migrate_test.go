@@ -1,10 +1,9 @@
 package db_migrator
 
 import (
-	"github.com/sirupsen/logrus"
+	"github.com/Maksumys/db-migrator/internal/repository"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 	"gorm.io/gorm/schema"
 	"log"
 	"sync"
@@ -14,6 +13,54 @@ import (
 
 const dsn = "postgres://admin:admin@127.0.0.1:5432/test"
 const dsn2 = "postgres://admin:admin@127.0.0.1:5432/test2"
+
+func TestHasTable(t *testing.T) {
+	repository.HasVersionTable(func() *gorm.DB {
+		dbConfig := &gorm.Config{
+			NamingStrategy: schema.NamingStrategy{
+				SingularTable: true,
+			},
+			NowFunc: func() time.Time {
+				return time.Now().UTC()
+			},
+		}
+
+		db, err := gorm.Open(postgres.New(postgres.Config{
+			DSN:                  dsn,
+			PreferSimpleProtocol: true,
+		}), dbConfig)
+
+		if err != nil {
+			panic(err)
+		}
+
+		return db
+	}())
+}
+
+func TestMigrate2(t *testing.T) {
+	migrator, errNew := NewMigrationsManager()
+	if errNew != nil {
+		log.Fatalln(errNew)
+	}
+
+	err := migrator.RegisterService(
+		"service2", func() *gorm.DB {
+			return nil
+		},
+		func(db *gorm.DB) {
+
+		}, "1.0.0.0")
+
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	err = DB1(migrator)
+	if err != nil {
+		log.Fatalln(err)
+	}
+}
 
 func TestMigrate(t *testing.T) {
 	migrator, errNew := NewMigrationsManager()
@@ -27,6 +74,7 @@ func TestMigrate(t *testing.T) {
 	go func() {
 		for {
 			time.Sleep(5 * time.Second)
+
 			err := DB1(migrator)
 			if err == nil {
 				break
@@ -42,7 +90,6 @@ func TestMigrate(t *testing.T) {
 			if err == nil {
 				break
 			}
-			logrus.Error(err)
 			time.Sleep(2 * time.Second)
 		}
 
@@ -61,12 +108,6 @@ func DB1(migrator *MigrationManager) error {
 			NowFunc: func() time.Time {
 				return time.Now().UTC()
 			},
-			Logger: logger.New(logrus.StandardLogger(), logger.Config{
-				SlowThreshold:             200 * time.Millisecond,
-				LogLevel:                  logger.Error,
-				IgnoreRecordNotFoundError: true,
-				Colorful:                  true,
-			}),
 		}
 
 		db, err := gorm.Open(postgres.New(postgres.Config{
@@ -138,12 +179,6 @@ func DB2(migrator *MigrationManager) error {
 			NowFunc: func() time.Time {
 				return time.Now().UTC()
 			},
-			Logger: logger.New(logrus.StandardLogger(), logger.Config{
-				SlowThreshold:             200 * time.Millisecond,
-				LogLevel:                  logger.Error,
-				IgnoreRecordNotFoundError: true,
-				Colorful:                  true,
-			}),
 		}
 
 		db, err := gorm.Open(postgres.New(postgres.Config{
@@ -188,10 +223,7 @@ func DB2(migrator *MigrationManager) error {
 			Version:       "1.0.1.0",
 			Description:   "up connections2",
 			Up:            "alter table connections add column four text;",
-			UpF: func(selfDb *gorm.DB, depsDb map[string]*gorm.DB) error {
-				return nil
-			},
-			Down: "",
+			Down:          "",
 			Dependency: []DbDependency{
 				{
 					Name:    "service1",
