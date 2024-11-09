@@ -22,7 +22,8 @@ func SaveVersion(db *gorm.DB, version string) error {
 	count := db.First(&row).RowsAffected
 
 	if count == 0 {
-		return db.Create(&models.VersionModel{Version: version}).Error
+		_ = db.Create(&models.VersionModel{Version: version}).Error
+		return nil
 	}
 
 	return db.Model(&models.VersionModel{}).Where("version = ?", row.Version).Update("version", version).Error
