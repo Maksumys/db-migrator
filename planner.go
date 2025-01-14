@@ -2,6 +2,7 @@ package db_migrator
 
 import (
 	"container/list"
+	"fmt"
 	"github.com/Maksumys/db-migrator/internal/models"
 	"gorm.io/gorm"
 	"sort"
@@ -35,24 +36,40 @@ type migratePlanner struct {
 	baselineIsPlanned bool
 }
 
-func (p *migratePlanner) MakePlan(serviceName string) migrationsPlan {
+func (p *migratePlanner) MakePlan(serviceName string) (migrationsPlan, error) {
 	plan := newMigrationsPlan()
 	p.planMigrationsBaseline(serviceName, &plan)
-	p.planMigrationsVersioned(serviceName, &plan)
-	p.planMigrationsRepeatable(serviceName, &plan)
 
-	return plan
+	err := p.planMigrationsVersioned(serviceName, &plan)
+
+	if err != nil {
+		return plan, err
+	}
+
+	err = p.planMigrationsRepeatable(serviceName, &plan)
+
+	if err != nil {
+		return plan, err
+	}
+
+	return plan, nil
 }
 
 func (p *migratePlanner) planMigrationsBaseline(serviceName string, plan *migrationsPlan) {
 	if !p.baselineRequired() {
 		return
 	}
-	p.manager.logger.Println("No successful baseline migrations found, planning to execute latest available")
+	p.manager.logger.Warn("no successful baseline migrations found, planning to execute latest available")
 
-	relevantBaseline, ok := p.findRelevantBaseline(serviceName)
+	relevantBaseline, ok, err := p.findRelevantBaseline(serviceName)
+
+	if err != nil {
+		p.manager.logger.Error(err.Error())
+		return
+	}
+
 	if !ok {
-		p.manager.logger.Println("No relevant baseline migrations for current target Version found")
+		p.manager.logger.Error("no relevant baseline migrations for current target Version found")
 		return
 	}
 
@@ -62,18 +79,15 @@ func (p *migratePlanner) planMigrationsBaseline(serviceName string, plan *migrat
 	p.plannedBaseline = relevantBaseline
 }
 
-func (p *migratePlanner) planMigrationsVersioned(serviceName string, plan *migrationsPlan) {
+func (p *migratePlanner) planMigrationsVersioned(serviceName string, plan *migrationsPlan) error {
 	service, ok := p.manager.services[serviceName]
 
 	if !ok {
-		panic("fail to get service")
+		return fmt.Errorf("fail to get service")
 	}
 
 	sort.SliceStable(p.savedMigrations, func(i, j int) bool {
-		leftVersioned := mustParseVersion(p.savedMigrations[i].Version)
-		rightVersioned := mustParseVersion(p.savedMigrations[j].Version)
-
-		return rightVersioned.MoreThan(leftVersioned)
+		return p.savedMigrations[j].Version.MoreThan(p.savedMigrations[i].Version)
 	})
 
 	for _, migrationModel := range p.savedMigrations {
@@ -87,41 +101,37 @@ func (p *migratePlanner) planMigrationsVersioned(serviceName string, plan *migra
 			continue
 		}
 
-		migrationVersion := mustParseVersion(migrationModel.Version)
-
-		if migrationVersion.MoreThan(service.TargetVersion) {
+		if migrationModel.Version.MoreThan(service.TargetVersion) {
 			continue
 		}
 
 		version, _ := p.manager.getSavedAppVersion(serviceName)
 
-		if migrationVersion.LessOrEqual(version) {
+		if migrationModel.Version.LessOrEqual(version) {
 			continue
 		}
 
 		if p.baselineIsPlanned {
-			baselineVersion := mustParseVersion(p.plannedBaseline.Version)
-			if baselineVersion.MoreThan(migrationVersion) {
+			if p.plannedBaseline.Version.MoreThan(migrationModel.Version) {
 				continue
 			}
 		}
 
 		plan.migrationsToRun.PushBack(migrationModel)
 	}
+
+	return nil
 }
 
-func (p *migratePlanner) planMigrationsRepeatable(serviceName string, plan *migrationsPlan) {
+func (p *migratePlanner) planMigrationsRepeatable(serviceName string, plan *migrationsPlan) error {
 	service, ok := p.manager.services[serviceName]
 
 	if !ok {
-		panic("fail to get service")
+		return fmt.Errorf("fail to get service")
 	}
 
 	sort.SliceStable(p.savedMigrations, func(i, j int) bool {
-		leftVersioned := mustParseVersion(p.savedMigrations[i].Version)
-		rightVersioned := mustParseVersion(p.savedMigrations[j].Version)
-
-		return rightVersioned.MoreThan(leftVersioned)
+		return p.savedMigrations[j].Version.MoreThan(p.savedMigrations[i].Version)
 	})
 
 	for _, migrationModel := range p.savedMigrations {
@@ -132,7 +142,7 @@ func (p *migratePlanner) planMigrationsRepeatable(serviceName string, plan *migr
 		migration, ok, err := p.manager.findMigration(serviceName, migrationModel)
 
 		if err != nil {
-			panic(err)
+			return err
 		}
 
 		if !ok {
@@ -148,15 +158,19 @@ func (p *migratePlanner) planMigrationsRepeatable(serviceName string, plan *migr
 		}
 
 		if !migration.RepeatUnconditional && migrationModel.Checksum == migration.CheckSum(service.Db) {
-			p.manager.logger.Printf(
-				"migration (type: %s, Version: %s, checksum: %s) checksum not changed, skipping\n",
-				migrationModel.Type, migrationModel.Version, migrationModel.Checksum,
+			p.manager.logger.Info(
+				fmt.Sprintf(
+					"migration (type: %s, Version: %s, checksum: %s) checksum not changed, skipping",
+					migrationModel.Type, migrationModel.Version, migrationModel.Checksum,
+				),
 			)
 			continue
 		}
 
 		plan.migrationsToRun.PushBack(migrationModel)
 	}
+
+	return nil
 }
 
 func (p *migratePlanner) baselineRequired() bool {
@@ -168,11 +182,11 @@ func (p *migratePlanner) baselineRequired() bool {
 	return true
 }
 
-func (p *migratePlanner) findRelevantBaseline(serviceName string) (models.MigrationModel, bool) {
+func (p *migratePlanner) findRelevantBaseline(serviceName string) (models.MigrationModel, bool, error) {
 	service, ok := p.manager.services[serviceName]
 
 	if !ok {
-		panic("fail to get service")
+		return models.MigrationModel{}, false, fmt.Errorf("fail to get service")
 	}
 
 	var latestBaselineMigration models.MigrationModel
@@ -183,14 +197,13 @@ func (p *migratePlanner) findRelevantBaseline(serviceName string) (models.Migrat
 			continue
 		}
 
-		version := mustParseVersion(migrationModel.Version)
-		if version.LessOrEqual(service.TargetVersion) {
+		if migrationModel.Version.LessOrEqual(service.TargetVersion) {
 			latestBaselineMigration = migrationModel
 			latestBaselineMigrationFound = true
 		}
 	}
 
-	return latestBaselineMigration, latestBaselineMigrationFound
+	return latestBaselineMigration, latestBaselineMigrationFound, nil
 }
 
 type downgradePlanner struct {
@@ -198,35 +211,30 @@ type downgradePlanner struct {
 	savedMigrations []models.MigrationModel
 }
 
-func (p *downgradePlanner) MakePlan(serviceName string) migrationsPlan {
+func (p *downgradePlanner) MakePlan(serviceName string) (migrationsPlan, error) {
 	plan := newMigrationsPlan()
 
 	service, ok := p.manager.services[serviceName]
 
 	if !ok {
-		panic("fail to get service")
+		return migrationsPlan{}, fmt.Errorf("fail to get service")
 	}
 
 	sort.SliceStable(p.savedMigrations, func(i, j int) bool {
-		leftVersioned := mustParseVersion(p.savedMigrations[i].Version)
-		rightVersioned := mustParseVersion(p.savedMigrations[j].Version)
-
-		return leftVersioned.MoreThan(rightVersioned)
+		return p.savedMigrations[i].Version.MoreThan(p.savedMigrations[j].Version)
 	})
 
 	for _, migrationModel := range p.savedMigrations {
-		migrationVersion := mustParseVersion(migrationModel.Version)
-
 		if migrationModel.Type != string(TypeVersioned) {
 			continue
 		}
 
 		version, _ := p.manager.getSavedAppVersion(serviceName)
 
-		if migrationVersion.MoreThan(version) {
+		if migrationModel.Version.MoreThan(version) {
 			continue
 		}
-		if migrationVersion.LessOrEqual(service.TargetVersion) {
+		if migrationModel.Version.LessOrEqual(service.TargetVersion) {
 			continue
 		}
 		if migrationModel.State == models.StateUndone {
@@ -236,5 +244,5 @@ func (p *downgradePlanner) MakePlan(serviceName string) migrationsPlan {
 		plan.migrationsToRun.PushBack(migrationModel)
 	}
 
-	return plan
+	return plan, nil
 }

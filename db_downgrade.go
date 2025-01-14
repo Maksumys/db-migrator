@@ -20,7 +20,7 @@ func (m *MigrationManager) Downgrade(serviceName string) (err error) {
 	service, ok := m.services[serviceName]
 
 	if !ok {
-		m.logger.Printf("service %s not found", serviceName)
+		m.logger.Error(fmt.Sprintf("service %s not found", serviceName))
 		return fmt.Errorf("service %s not found", serviceName)
 	}
 
@@ -29,10 +29,10 @@ func (m *MigrationManager) Downgrade(serviceName string) (err error) {
 		service.DisconnectFunc(service.Db)
 	}()
 
-	m.logger.Println("Preparing downgrade execution")
+	m.logger.Info("preparing downgrade execution")
 
 	if !repository.HasVersionTable(service.Db) || !repository.HasVersionTable(service.Db) {
-		panic("No migration table or Version table found. Cannot perform downgrade")
+		return fmt.Errorf("no migration table or Version table found, cannot perform downgrade")
 	}
 
 	savedMigrations, err := repository.GetMigrationsSorted(service.Db, repository.OrderDESC)
@@ -55,10 +55,10 @@ func (m *MigrationManager) Downgrade(serviceName string) (err error) {
 		}
 
 		if !ok {
-			panic(fmt.Sprintf(
-				"migration (type: %s, Version: %s) not found\n",
+			return fmt.Errorf(
+				"migration (type: %s, Version: %s) not found",
 				migrationModel.Type, migrationModel.Version,
-			))
+			)
 		}
 
 		err = m.executeDowngrade(serviceName, migrationModel, migration)
@@ -72,7 +72,8 @@ func (m *MigrationManager) Downgrade(serviceName string) (err error) {
 		}
 	}
 
-	m.logger.Println("Downgrade completed")
+	m.logger.Info("Downgrade completed")
+
 	return
 }
 
@@ -87,27 +88,29 @@ func (m *MigrationManager) planDowngrade(serviceName string) (migrationsPlan, er
 		savedMigrations: savedMigrations,
 	}
 
-	return planner.MakePlan(serviceName), nil
+	return planner.MakePlan(serviceName)
 }
 
 func (m *MigrationManager) executeDowngrade(serviceName string, migrationModel models.MigrationModel, migration *Migration) error {
 	service, ok := m.services[serviceName]
 
 	if !ok {
-		m.logger.Printf("service %s not found", serviceName)
+		m.logger.Info(fmt.Sprintf("service %s not found", serviceName))
 		return fmt.Errorf("service %s not found", serviceName)
 	}
 
-	m.logger.Printf(
-		"Downgrading %s migration: Version %s. State: %s\n",
-		migrationModel.Type, migrationModel.Version, migrationModel.State,
+	m.logger.Info(
+		fmt.Sprintf(
+			"downgrading %s migration: Version %s. State: %s",
+			migrationModel.Type, migrationModel.Version, migrationModel.State,
+		),
 	)
 
 	if migration.MigrationType != TypeVersioned {
-		panic("versioned migration must satisfy VersionedMigrator interface")
+		return fmt.Errorf("versioned migration must satisfy VersionedMigrator interface")
 	}
 	if len(migration.Down) == 0 && migration.DownF == nil {
-		panic("fail to downgrade, because Down and DownF is empty")
+		return fmt.Errorf("fail to downgrade, because Down and DownF is empty")
 	}
 
 	if migration.IsTransactional {
@@ -120,7 +123,7 @@ func (m *MigrationManager) executeDowngrade(serviceName string, migrationModel m
 		})
 
 		if err != nil {
-			m.logger.Println("Error occurred on migrate:", err)
+			m.logger.Error(fmt.Sprintf("error occurred on migrate: %v", err))
 			return err
 		}
 	} else {
@@ -139,7 +142,7 @@ func (m *MigrationManager) executeDowngrade(serviceName string, migrationModel m
 		}
 	}
 
-	m.logger.Println("Downgrade complete")
+	m.logger.Info("downgrade complete")
 	return nil
 }
 
@@ -147,7 +150,7 @@ func (m *MigrationManager) saveStateAfterDowngrading(serviceName string, savedMi
 	service, ok := m.services[serviceName]
 
 	if !ok {
-		m.logger.Printf("service %s not found", serviceName)
+		m.logger.Error(fmt.Sprintf("service %s not found", serviceName))
 		return fmt.Errorf("service %s not found", serviceName)
 	}
 
@@ -173,7 +176,7 @@ func (m *MigrationManager) saveVersionDowngrade(
 	service, ok := m.services[serviceName]
 
 	if !ok {
-		m.logger.Printf("service %s not found", serviceName)
+		m.logger.Error(fmt.Sprintf("service %s not found", serviceName))
 		return fmt.Errorf("service %s not found", serviceName)
 	}
 
@@ -187,28 +190,24 @@ func (m *MigrationManager) saveVersionDowngrade(
 	}
 
 	sort.SliceStable(filteredMigrations, func(i, j int) bool {
-		leftVersioned := mustParseVersion(filteredMigrations[i].Version)
-		rightVersioned := mustParseVersion(filteredMigrations[j].Version)
-
-		return leftVersioned.LessThan(rightVersioned)
+		return filteredMigrations[i].Version.LessThan(filteredMigrations[j].Version)
 	})
 
-	undoneMigrationVersion := mustParseVersion(migrationModel.Version)
-	versionToSave := Version{Major: 0, Minor: 0, Patch: 0, PreRelease: 0}
+	undoneMigrationVersion := migrationModel.Version
+	var versionToSave models.Version
 	// находим предыдущую версию
 	for i := range filteredMigrations {
 		if filteredMigrations[i].Type != string(TypeVersioned) {
 			continue
 		}
 
-		migrationVersion := mustParseVersion(filteredMigrations[i].Version)
-		if migrationVersion == undoneMigrationVersion {
+		if filteredMigrations[i].Version.Equals(undoneMigrationVersion) {
 			if i != 0 {
-				versionToSave = mustParseVersion(filteredMigrations[i-1].Version)
+				versionToSave = filteredMigrations[i-1].Version
 			}
 			break
 		}
 	}
 
-	return repository.SaveVersion(service.Db, versionToSave.String())
+	return repository.SaveVersion(service.Db, versionToSave)
 }

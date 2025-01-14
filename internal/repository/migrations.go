@@ -36,14 +36,14 @@ func UpdateMigrationStateExecuted(db *gorm.DB, model *models.MigrationModel, sta
 type SaveMigrationRequest struct {
 	Rank        int
 	Type        string
-	Version     string
+	Version     models.Version
 	Description string
 	State       models.MigrationState
 }
 
 func SaveMigration(db *gorm.DB, request SaveMigrationRequest) (models.MigrationModel, error) {
 	h := fnv.New32a()
-	_, _ = h.Write([]byte(request.Type + request.Version))
+	_, _ = h.Write([]byte(request.Type + request.Version.String()))
 	migration := models.MigrationModel{
 		Id:           h.Sum32(),
 		Rank:         request.Rank,

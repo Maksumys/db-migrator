@@ -7,7 +7,7 @@ import (
 	"github.com/Maksumys/db-migrator/internal/repository"
 	"gorm.io/gorm"
 	"hash/fnv"
-	"log"
+	"log/slog"
 	"os"
 	"sync"
 )
@@ -22,9 +22,11 @@ var (
 // TargetVersion - версия, до которой необходимо выполнить миграцию или до необходимо осуществить откат.
 func NewMigrationsManager(opts ...ManagerOption) (*MigrationManager, error) {
 	manager := MigrationManager{
-		logger:   log.New(os.Stderr, "", log.LstdFlags),
+		// log.New(os.Stderr, "", log.LstdFlags)
+		logger:   slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})),
 		services: make(map[string]*ServiceInfo),
 	}
+
 	for _, opt := range opts {
 		opt(&manager)
 	}
@@ -36,13 +38,13 @@ type ServiceInfo struct {
 	Db                      *gorm.DB
 	ConnectFunc             func() *gorm.DB
 	DisconnectFunc          func(db *gorm.DB)
-	TargetVersion           Version
+	TargetVersion           models.Version
 	registeredMigrations    []*Migration
 	registeredMigrationsSet map[uint32]*Migration
 }
 
 type MigrationManager struct {
-	logger   *log.Logger
+	logger   *slog.Logger
 	services map[string]*ServiceInfo
 
 	mutex sync.Mutex
@@ -52,7 +54,7 @@ func (m *MigrationManager) RegisterService(name string, connectFunc func() *gorm
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	parsedTargetVersion, err := parseVersion(targetVersion)
+	parsedTargetVersion, err := models.ParseVersion(targetVersion)
 	if err != nil {
 		return err
 	}
@@ -103,7 +105,12 @@ func (m *MigrationManager) Register(serviceName string, migrationsStruct ...Migr
 	}
 
 	for i := 0; i < len(migrationsStruct); i++ {
-		identifier := getMigrationIdentifier(migrationsStruct[i].Version, string(migrationsStruct[i].MigrationType))
+		migrationVersion, err := models.ParseVersion(migrationsStruct[i].Version)
+		if err != nil {
+			return err
+		}
+
+		identifier := getMigrationIdentifier(migrationVersion, string(migrationsStruct[i].MigrationType))
 		if _, ok = service.registeredMigrationsSet[identifier]; ok {
 			continue
 		}
@@ -126,7 +133,7 @@ func (m *MigrationManager) CheckFulfillment(serviceName string) (reasonErr error
 	service, ok := m.services[serviceName]
 
 	if !ok {
-		m.logger.Printf("service %s not found", serviceName)
+		m.logger.Error(fmt.Sprintf("service %s not found", serviceName))
 		return errors.New("service not found"), false, fmt.Errorf("service %s not found", serviceName)
 	}
 
@@ -167,7 +174,7 @@ func (m *MigrationManager) hasFailedMigrations(serviceName string) (bool, error)
 	service, ok := m.services[serviceName]
 
 	if !ok {
-		m.logger.Printf("service %s not found", serviceName)
+		m.logger.Error(fmt.Sprintf("service %s not found", serviceName))
 		return false, fmt.Errorf("service %s not found", serviceName)
 	}
 
@@ -195,7 +202,7 @@ func (m *MigrationManager) hasForthcomingMigrations(serviceName string) (bool, e
 	service, ok := m.services[serviceName]
 
 	if !ok {
-		m.logger.Printf("service %s not found", serviceName)
+		m.logger.Error(fmt.Sprintf("service %s not found", serviceName))
 		return false, fmt.Errorf("service %s not found", serviceName)
 	}
 
@@ -216,8 +223,7 @@ func (m *MigrationManager) hasForthcomingMigrations(serviceName string) (bool, e
 	}
 
 	for i := range savedMigrations {
-		migrationVersion := mustParseVersion(savedMigrations[i].Version)
-		if migrationVersion.MoreOrEqual(savedVersion) && savedMigrations[i].State != models.StateSuccess {
+		if savedMigrations[i].Version.MoreOrEqual(savedVersion) && savedMigrations[i].State != models.StateSuccess {
 			return true, nil
 		}
 	}
@@ -239,7 +245,7 @@ func (m *MigrationManager) targetVersionNotLatest(serviceName string) (bool, err
 	service, ok := m.services[serviceName]
 
 	if !ok {
-		m.logger.Printf("service %s not found", serviceName)
+		m.logger.Error(fmt.Sprintf("service %s not found", serviceName))
 		return false, fmt.Errorf("service %s not found", serviceName)
 	}
 
@@ -254,14 +260,18 @@ func (m *MigrationManager) targetVersionNotLatest(serviceName string) (bool, err
 	}
 
 	for i := range savedMigrations {
-		migrationVersion := mustParseVersion(savedMigrations[i].Version)
-		if !service.TargetVersion.MoreOrEqual(migrationVersion) {
+		if !service.TargetVersion.MoreOrEqual(savedMigrations[i].Version) {
 			return true, nil
 		}
 	}
 
 	for i := range service.registeredMigrations {
-		migrationVersion := mustParseVersion(service.registeredMigrations[i].Version)
+		migrationVersion, err := models.ParseVersion(service.registeredMigrations[i].Version)
+
+		if err != nil {
+			return false, err
+		}
+
 		if !service.TargetVersion.MoreOrEqual(migrationVersion) {
 			return true, nil
 		}
@@ -274,14 +284,20 @@ func (m *MigrationManager) findMigration(serviceName string, migrationModel mode
 	service, ok := m.services[serviceName]
 
 	if !ok {
-		m.logger.Printf("service %s not found", serviceName)
+		m.logger.Error(fmt.Sprintf("service %s not found", serviceName))
 		return nil, false, fmt.Errorf("service %s not found", serviceName)
 	}
 
 	migrationModelIdentifier := getMigrationIdentifier(migrationModel.Version, migrationModel.Type)
 
 	for _, migration := range service.registeredMigrations {
-		registeredMigrationIdentifier := getMigrationIdentifier(migration.Version, string(migration.MigrationType))
+		migrationVersion, err := models.ParseVersion(migration.Version)
+
+		if err != nil {
+			return nil, false, err
+		}
+
+		registeredMigrationIdentifier := getMigrationIdentifier(migrationVersion, string(migration.MigrationType))
 		if registeredMigrationIdentifier == migrationModelIdentifier {
 			return migration, true, nil
 		}
@@ -290,21 +306,21 @@ func (m *MigrationManager) findMigration(serviceName string, migrationModel mode
 	return nil, false, nil
 }
 
-func (m *MigrationManager) getSavedAppVersion(serviceName string) (Version, error) {
+func (m *MigrationManager) getSavedAppVersion(serviceName string) (models.Version, error) {
 	service, ok := m.services[serviceName]
 
 	if !ok {
-		m.logger.Printf("service %s not found", serviceName)
-		return Version{}, fmt.Errorf("service %s not found", serviceName)
+		m.logger.Error(fmt.Sprintf("service %s not found", serviceName))
+		return models.Version{}, fmt.Errorf("service %s not found", serviceName)
 	}
 
 	savedAppVersion, err := repository.GetVersion(service.Db)
 	// если текущая версия миграции не найдена, возвращаем версию 0.0.0, как минимально возможную
 	if err != nil {
-		return Version{}, err
+		return models.Version{}, err
 	}
 
-	return mustParseVersion(savedAppVersion), nil
+	return savedAppVersion, nil
 }
 
 func migrationIsNew(migration *Migration, savedMigrations []models.MigrationModel) bool {
@@ -317,9 +333,9 @@ func migrationIsNew(migration *Migration, savedMigrations []models.MigrationMode
 	return true
 }
 
-func getMigrationIdentifier(version, migrationType string) uint32 {
+func getMigrationIdentifier(version models.Version, migrationType string) uint32 {
 	h := fnv.New32a()
 	// fmv.sum64a always writes with no error
-	_, _ = h.Write([]byte(version + migrationType))
+	_, _ = h.Write([]byte(version.String() + migrationType))
 	return h.Sum32()
 }

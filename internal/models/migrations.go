@@ -15,7 +15,7 @@ type MigrationModel struct {
 	Id           uint32 `gorm:"primaryKey"`
 	Rank         int
 	Type         string
-	Version      string
+	Version      Version
 	Description  string
 	RegisteredOn CustomTime  `gorm:"type:datetime"`
 	ExecutedOn   *CustomTime `gorm:"type:datetime"`

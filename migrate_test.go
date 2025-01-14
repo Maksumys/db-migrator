@@ -1,44 +1,95 @@
 package db_migrator
 
-//
-//import (
-//	"github.com/Maksumys/db-migrator/internal/repository"
-//	"gorm.io/driver/postgres"
-//	"gorm.io/gorm"
-//	"gorm.io/gorm/schema"
-//	"log"
-//	"sync"
-//	"testing"
-//	"time"
-//)
-//
 //const dsn = "postgres://admin:admin@127.0.0.1:5432/test"
 //const dsn2 = "postgres://admin:admin@127.0.0.1:5432/test2"
 //
-//func TestHasTable(t *testing.T) {
-//	repository.HasVersionTable(func() *gorm.DB {
-//		dbConfig := &gorm.Config{
-//			NamingStrategy: schema.NamingStrategy{
-//				SingularTable: true,
-//			},
-//			NowFunc: func() time.Time {
-//				return time.Now().UTC()
-//			},
-//		}
+//func TestMigrations(t *testing.T) {
+//	var postgresContainer *postgres.PostgresContainer
+//	var err error
 //
-//		db, err := gorm.Open(postgres.New(postgres.Config{
-//			DSN:                  dsn,
-//			PreferSimpleProtocol: true,
-//		}), dbConfig)
+//	postgresContainer, err = postgres.Run(
+//		context.Background(),
+//		"postgres:16-alpine",
+//		postgres.WithDatabase("postgres"),
+//		postgres.WithUsername("postgres"),
+//		postgres.WithPassword("postgres"),
+//		postgres.BasicWaitStrategies(),
+//		postgres.WithSQLDriver("pgx"),
+//	)
 //
-//		if err != nil {
-//			panic(err)
-//		}
+//	require.NoError(t, err)
 //
-//		return db
-//	}())
+//	migrator, errNew := NewMigrationsManager()
+//	if errNew != nil {
+//		log.Fatalln(errNew)
+//	}
+//
+//	err = migrator.RegisterService("service1", func() *gorm.DB {
+//		return createDb(postgresContainer.MustConnectionString(context.Background()))
+//	}, func(db *gorm.DB) {
+//		d, _ := db.DB()
+//		d.Close()
+//	},
+//		"1.0.1.0")
+//
+//	require.NoError(t, err)
+//
+//	err = migrator.Register(
+//		"service1",
+//		Migration{
+//			MigrationType:   TypeBaseline,
+//			Version:         "1.0.0.0",
+//			Description:     "initial migration with connections",
+//			IsAllowFailure:  false,
+//			IsTransactional: true,
+//			Down:            "",
+//			Up:              "create table connections( id bigserial, one text, two numeric );",
+//		},
+//		Migration{
+//			MigrationType: TypeVersioned,
+//			Version:       "1.0.0.1",
+//			Description:   "up connections",
+//			Up:            "alter table connections add column three text;",
+//			Down:          "",
+//		},
+//		Migration{
+//			MigrationType: TypeVersioned,
+//			Version:       "1.0.1.0",
+//			Description:   "up connections",
+//			Up:            "alter table connections add column four text;",
+//			Down:          "",
+//		},
+//	)
+//
+//	require.NoError(t, err)
+//
+//	err = migrator.Migrate("service1")
+//	require.NoError(t, err)
 //}
 //
+//func createDb(dsn string) *gorm.DB {
+//	dbConfig := &gorm.Config{
+//		NamingStrategy: schema.NamingStrategy{
+//			SingularTable: true,
+//		},
+//		NowFunc: func() time.Time {
+//			return time.Now().UTC()
+//		},
+//		Logger: nil,
+//	}
+//
+//	db, err := gorm.Open(gormPg.New(gormPg.Config{
+//		DSN:                  dsn,
+//		PreferSimpleProtocol: true,
+//	}), dbConfig)
+//
+//	if err != nil {
+//		panic(err)
+//	}
+//
+//	return db
+//}
+
 //func TestMigrate2(t *testing.T) {
 //	migrator, errNew := NewMigrationsManager()
 //	if errNew != nil {

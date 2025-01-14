@@ -6,27 +6,27 @@ import (
 	"gorm.io/gorm"
 )
 
-func GetVersion(db *gorm.DB) (string, error) {
+func GetVersion(db *gorm.DB) (models.Version, error) {
 	var row models.VersionModel
-	res := db.Find(&row)
+	res := db.First(&row)
 
 	if res.Error != nil {
 		switch {
 		case errors.Is(res.Error, gorm.ErrRecordNotFound):
-			return "", ErrNotFound
+			return models.Version{}, ErrNotFound
 		default:
-			return "", res.Error
+			return models.Version{}, res.Error
 		}
 	}
 
 	if res.RowsAffected == 0 {
-		return "", ErrNotFound
+		return models.Version{}, ErrNotFound
 	}
 
 	return row.Version, nil
 }
 
-func SaveVersion(db *gorm.DB, version string) error {
+func SaveVersion(db *gorm.DB, version models.Version) error {
 	var row models.VersionModel
 	count := db.Find(&row).RowsAffected
 
