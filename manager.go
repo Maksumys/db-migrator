@@ -8,7 +8,6 @@ import (
 	"gorm.io/gorm"
 	"hash/fnv"
 	"log/slog"
-	"os"
 	"sync"
 )
 
@@ -22,8 +21,7 @@ var (
 // TargetVersion - версия, до которой необходимо выполнить миграцию или до необходимо осуществить откат.
 func NewMigrationsManager(opts ...ManagerOption) (*MigrationManager, error) {
 	manager := MigrationManager{
-		// log.New(os.Stderr, "", log.LstdFlags)
-		logger:   slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})),
+		logger:   slog.Default(),
 		services: make(map[string]*ServiceInfo),
 	}
 
