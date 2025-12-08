@@ -275,9 +275,7 @@ func (m *MigrationManager) executeMigration(serviceName string, migrationModel m
 				return err
 			}
 
-			if dependency.Strict && !version.Equals(dependencyVersion) {
-				return errors.New("dependency version is not valid")
-			} else if version.LessThan(dependencyVersion) {
+			if (dependency.Strict && !version.Equals(dependencyVersion)) || version.LessThan(dependencyVersion) {
 				return errors.New("dependency version is not valid")
 			}
 		}
